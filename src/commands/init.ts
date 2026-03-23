@@ -15,7 +15,7 @@ function ensureDir(dir: string): void {
 
 export async function runInit(): Promise<void> {
   const state = await readState()
-  const collected = await collectProjectFiles()
+  const collected = await collectProjectFiles(process.cwd(), "deep")
 
   ensureDir(".claude/commands")
 

@@ -30,7 +30,7 @@ export async function runRemove(): Promise<void> {
   }
 
   const state = await readState()
-  const collected = await collectProjectFiles()
+  const collected = await collectProjectFiles(process.cwd(), "configOnly")
   const content = buildRemoveCommand(userInput, state)
 
   ensureDir(".claude/commands")

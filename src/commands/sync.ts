@@ -48,7 +48,7 @@ export async function runSync(): Promise<void> {
   }
 
   const lastRun = manifest.runs.at(-1)!
-  const collected = await collectProjectFiles()
+  const collected = await collectProjectFiles(process.cwd(), "normal")
   const diff = computeDiff(lastRun.snapshot, collected)
 
   if (!diff.added.length && !diff.changed.length && !diff.deleted.length) {
