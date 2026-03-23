@@ -18,7 +18,7 @@ export interface Manifest {
   runs: ManifestRun[]
 }
 
-const MANIFEST_FILENAME = ".claude/claude-stack.json"
+const MANIFEST_FILENAME = ".claude/claude-setup.json"
 
 export function sha256(content: string): string {
   return createHash("sha256").update(content).digest("hex")

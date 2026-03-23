@@ -43,7 +43,7 @@ export async function runSync(): Promise<void> {
   const manifest = await readManifest()
 
   if (!manifest?.runs.length) {
-    console.log("No previous run found. Start with: npx claude-stack init")
+    console.log("No previous run found. Start with: npx claude-setup init")
     return
   }
 

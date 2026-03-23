@@ -1,23 +1,23 @@
-# claude-stack
+# claude-setup
 
 Setup layer for Claude Code. Reads your project, writes command files, Claude Code does the rest.
 
 ## Install
 
 ```bash
-npx claude-stack init
+npx claude-setup init
 ```
 
 ## Commands
 
 | Command | What it does |
 |---------|-------------|
-| `npx claude-stack init` | Full project setup — new or existing |
-| `npx claude-stack add` | Add a multi-file capability |
-| `npx claude-stack sync` | Update setup after project changes |
-| `npx claude-stack status` | Show current setup |
-| `npx claude-stack doctor` | Validate environment |
-| `npx claude-stack remove` | Remove a capability cleanly |
+| `npx claude-setup init` | Full project setup — new or existing |
+| `npx claude-setup add` | Add a multi-file capability |
+| `npx claude-setup sync` | Update setup after project changes |
+| `npx claude-setup status` | Show current setup |
+| `npx claude-setup doctor` | Validate environment |
+| `npx claude-setup remove` | Remove a capability cleanly |
 
 ## How it works
 

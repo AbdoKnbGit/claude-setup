@@ -15,7 +15,7 @@ const pkg = require("../package.json")
 const program = new Command()
 
 program
-  .name("claude-stack")
+  .name("claude-setup")
   .description("Setup layer for Claude Code")
   .version(pkg.version)
 

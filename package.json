@@ -1,10 +1,10 @@
 {
-  "name": "claude-stack",
+  "name": "claude-setup",
   "version": "1.0.0",
   "description": "Setup layer for Claude Code — reads your project, writes command files, Claude Code does the rest",
   "type": "module",
   "bin": {
-    "claude-stack": "./dist/index.js"
+    "claude-setup": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc",
@@ -32,11 +32,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AbdoKnbGit/claude-stack.git"
+    "url": "git+https://github.com/AbdoKnbGit/claude-setup.git"
   },
-  "homepage": "https://github.com/AbdoKnbGit/claude-stack#readme",
+  "homepage": "https://github.com/AbdoKnbGit/claude-setup#readme",
   "bugs": {
-    "url": "https://github.com/AbdoKnbGit/claude-stack/issues"
+    "url": "https://github.com/AbdoKnbGit/claude-setup/issues"
   },
   "dependencies": {
     "commander": "^12.1.0",

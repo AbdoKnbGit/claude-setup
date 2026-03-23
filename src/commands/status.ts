@@ -6,7 +6,7 @@ export async function runStatus(): Promise<void> {
   const state = await readState()
 
   if (!manifest) {
-    console.log("No setup found.\n  Run: npx claude-stack init")
+    console.log("No setup found.\n  Run: npx claude-setup init")
     return
   }
 
@@ -21,6 +21,6 @@ export async function runStatus(): Promise<void> {
   for (const r of manifest.runs.slice(-5)) {
     console.log(`  ${r.at}  ${r.command}${r.input ? ` — "${r.input}"` : ""}`)
   }
-  console.log("\n  npx claude-stack sync    — update after changes")
-  console.log("  npx claude-stack doctor  — validate environment")
+  console.log("\n  npx claude-setup sync    — update after changes")
+  console.log("  npx claude-setup doctor  — validate environment")
 }

@@ -43,7 +43,7 @@ export async function runAdd(): Promise<void> {
 For single changes, Claude Code is faster:
   Just tell it: "${userInput}"
 
-Use claude-stack add when the change spans multiple files —
+Use claude-setup add when the change spans multiple files —
 capabilities that need documentation, MCP servers, skills, and hooks together.
     `)
     return

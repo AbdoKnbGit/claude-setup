@@ -28,7 +28,7 @@ export async function runDoctor(): Promise<void> {
   const manifest = await readManifest()
   const state = await readState()
 
-  console.log("claude-stack doctor\n")
+  console.log("claude-setup doctor\n")
 
   // Claude Code installed?
   const cv = tryExec("claude --version")
@@ -38,8 +38,8 @@ export async function runDoctor(): Promise<void> {
   const lastRun = manifest?.runs.at(-1)
   line(
     manifest ? "✅" : "⚠️ ",
-    ".claude/claude-stack.json",
-    manifest ? `last: ${lastRun?.command} at ${lastRun?.at}` : "not found — run: npx claude-stack init"
+    ".claude/claude-setup.json",
+    manifest ? `last: ${lastRun?.command} at ${lastRun?.at}` : "not found — run: npx claude-setup init"
   )
 
   // Files from last run still on disk?
