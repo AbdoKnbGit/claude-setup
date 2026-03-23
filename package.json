@@ -1,0 +1,49 @@
+{
+  "name": "claude-stack",
+  "version": "1.0.0",
+  "description": "Setup layer for Claude Code — reads your project, writes command files, Claude Code does the rest",
+  "type": "module",
+  "bin": {
+    "claude-stack": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "prepublishOnly": "tsc"
+  },
+  "files": [
+    "dist",
+    "templates"
+  ],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "cli",
+    "developer-tools",
+    "ai",
+    "anthropic",
+    "automation",
+    "scaffolding",
+    "project-setup",
+    "mcp",
+    "npx"
+  ],
+  "author": "AbdoKnbGit",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AbdoKnbGit/claude-stack.git"
+  },
+  "homepage": "https://github.com/AbdoKnbGit/claude-stack#readme",
+  "bugs": {
+    "url": "https://github.com/AbdoKnbGit/claude-stack/issues"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "glob": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}
