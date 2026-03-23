@@ -6,11 +6,9 @@ The developer wants to add this to their Claude Code setup:
 
 ---
 
-## Project context
+## Project context (config files only)
 
 {{CONFIG_FILES}}
-
-{{SOURCE_FILES}}
 
 ---
 

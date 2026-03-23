@@ -50,8 +50,10 @@ capabilities that need documentation, MCP servers, skills, and hooks together.
   }
 
   const state = await readState()
+  // add only needs config files — source files are irrelevant and waste tokens
   const collected = await collectProjectFiles()
-  const content = buildAddCommand(userInput, collected, state)
+  const configOnly = { ...collected, source: [], skipped: [] }
+  const content = buildAddCommand(userInput, configOnly, state)
 
   ensureDir(".claude/commands")
   writeFileSync(".claude/commands/stack-add.md", content, "utf8")
