@@ -42,10 +42,4 @@ The CLI has zero intelligence. All reasoning is delegated to Claude Code via the
 - `.claude/commands/` — project-specific slash commands
 - `.github/workflows/` — CI workflows (only if `.github/` exists)
 
-## Cost controls
 
-Every byte in a command file costs tokens. The CLI enforces:
-- Source file sampling (max 10 files, smallest first)
-- Hard truncation per file (150/400 line thresholds)
-- Token budget cap (20,000 tokens max per command file)
-- Universal blocklist (node_modules, dist, binaries, etc.)
