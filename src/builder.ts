@@ -4,6 +4,7 @@ import { fileURLToPath } from "url"
 import { CollectedFiles } from "./collect.js"
 import { ExistingState } from "./state.js"
 import { loadConfig } from "./config.js"
+import { detectOS } from "./os.js"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const TEMPLATES_DIR = join(__dirname, "..", "templates")
@@ -82,6 +83,10 @@ function formatSourceContext(source: CollectedFiles["source"]): string {
 // --- Template variable building ---
 
 function buildVars(collected: CollectedFiles, state: ExistingState): Record<string, string> {
+  const skippedList = collected.skipped.length > 0
+    ? collected.skipped.map(s => `- ${s.path} — ${s.reason}`).join("\n")
+    : ""
+
   return {
     VERSION: getVersion(),
     DATE: new Date().toISOString().split("T")[0],
@@ -100,12 +105,15 @@ function buildVars(collected: CollectedFiles, state: ExistingState): Record<stri
     COMMANDS_LIST: formatList(state.commands),
     WORKFLOWS_LIST: formatList(state.workflows),
     HAS_GITHUB_DIR: state.hasGithubDir ? "yes" : "no",
+    SKIPPED_LIST: skippedList,
+    DETECTED_OS: detectOS(),
   }
 }
 
 function buildFlags(_collected: CollectedFiles, state: ExistingState): Record<string, boolean> {
   return {
     HAS_SOURCE: _collected.source.length > 0,
+    HAS_SKIPPED: _collected.skipped.length > 0,
     HAS_CLAUDE_MD: state.claudeMd.exists,
     HAS_MCP_JSON: state.mcpJson.exists,
     HAS_SETTINGS: state.settings.exists,
@@ -216,11 +224,12 @@ export function buildAtomicSteps(collected: CollectedFiles, state: ExistingState
   const version = getVersion()
   const date = new Date().toISOString().split("T")[0]
   const vars = buildVars(collected, state)
+  const os = detectOS()
 
   const header = `<!-- claude-setup ${version} ${date} -->\n`
-  const check = `Check if target already has this content. If yes: print "SKIPPED" and stop. Write only what's missing.\n\n`
+  const preamble = `Before writing: check if what you are about to write already exists in the target file (current content provided below if it exists). If already up to date: print "SKIPPED — already up to date" and stop. Write only what is genuinely missing.\n\nRead /stack-0-context for full project info.\n\n`
 
-  // Shared context block — written once to a reference file, not duplicated
+  // Shared context block — written once, referenced by all steps
   const sharedContext = header +
     `## Project\n\n${vars.PROJECT_CONTEXT}\n\n` +
     `{{#if HAS_SOURCE}}## Source samples\n\n${vars.SOURCE_CONTEXT}\n{{/if}}`
@@ -232,57 +241,158 @@ export function buildAtomicSteps(collected: CollectedFiles, state: ExistingState
       filename: "stack-0-context.md",
       content: sharedContextProcessed,
     },
+
+    // --- Step 1: CLAUDE.md ---
     {
       filename: "stack-1-claude-md.md",
-      content: header + check +
-        `Read /stack-0-context for project info.\n\n` +
-        `## Target: CLAUDE.md\n` +
+      content: header + preamble +
+        `## Target: CLAUDE.md\n\n` +
         (state.claudeMd.exists
-          ? `Current content (append only, never rewrite):\n${vars.CLAUDE_MD_CONTENT}\n\n`
-          : `Does not exist. Create it.\n\n`) +
-        `Write CLAUDE.md specific to this project. Reference actual paths and patterns. No generic boilerplate.`,
+          ? `### Current content — APPEND ONLY, never rewrite, never remove:\n${vars.CLAUDE_MD_CONTENT}\n\n`
+          : `Does not exist — create it.\n\n`) +
+        `### What to write\n` +
+        `CLAUDE.md is the most valuable artifact. Make it specific to THIS project:\n` +
+        `- **Purpose**: one sentence describing what this project does\n` +
+        `- **Runtime**: language, framework, key dependencies from /stack-0-context\n` +
+        `- **Key dirs**: reference actual directory paths from the project tree\n` +
+        `- **Run/test/build commands**: extract from scripts in /stack-0-context\n` +
+        `- **Non-obvious conventions**: patterns you see in the source samples\n\n` +
+        `### Rules\n` +
+        `- Every line must reference something you actually saw in /stack-0-context\n` +
+        `- No generic boilerplate. Two different projects must produce two different CLAUDE.md files\n` +
+        `- If it exists above: read it fully, add only what is genuinely missing\n\n` +
+        `### Output\n` +
+        `Created/Updated: ✅ CLAUDE.md — [one clause: what you wrote and why]\n` +
+        `Skipped: ⏭ CLAUDE.md — [why not needed]\n`,
     },
+
+    // --- Step 2: .mcp.json ---
     {
       filename: "stack-2-mcp.md",
-      content: header + check +
-        `Read /stack-0-context for project info.\n\n` +
-        `## Target: .mcp.json\n` +
+      content: header + preamble +
+        `## Target: .mcp.json\n\n` +
         (state.mcpJson.exists
-          ? `Current (merge only, never remove):\n${vars.MCP_JSON_CONTENT}\n\n`
-          : `Does not exist. Create only if services are evidenced.\n\n`) +
-        `No evidence = no server. Valid JSON only.`,
+          ? `### Current content — MERGE ONLY, never remove existing entries:\n${vars.MCP_JSON_CONTENT}\n\n`
+          : `Does not exist.\n\n`) +
+        `### When to create/update\n` +
+        `Add an MCP server ONLY if you find evidence in /stack-0-context:\n` +
+        `- Import statement referencing an external service\n` +
+        `- docker-compose service (database, cache, queue)\n` +
+        `- Env var name in .env.example matching a known service pattern\n` +
+        `- Explicit dependency on an MCP-compatible package\n\n` +
+        `No evidence = no server. Do not invent services.\n\n` +
+        `### OS-correct format (detected: ${os})\n` +
+        (os === "Windows"
+          ? `Use: \`{ "command": "cmd", "args": ["/c", "npx", "<package>"] }\`\n`
+          : `Use: \`{ "command": "npx", "args": ["<package>"] }\`\n`) +
+        `\n### Rules\n` +
+        `- All env var refs use \`\${VARNAME}\` syntax\n` +
+        `- Produce valid JSON only\n` +
+        `- If creating: document every new env var in .env.example\n\n` +
+        `### Output\n` +
+        `Created/Updated: ✅ .mcp.json — [what server and evidence source]\n` +
+        `Skipped: ⏭ .mcp.json — checked [files], found [nothing], no action\n`,
     },
+
+    // --- Step 3: .claude/settings.json ---
     {
       filename: "stack-3-settings.md",
-      content: header + check +
-        `Read /stack-0-context for project info.\n\n` +
-        `## Target: .claude/settings.json\n` +
+      content: header + preamble +
+        `## Target: .claude/settings.json\n\n` +
         (state.settings.exists
-          ? `Current (merge only, never remove hooks):\n${vars.SETTINGS_CONTENT}\n\n`
-          : `Does not exist. Create only if hooks earn their cost.\n\n`) +
-        `Every hook runs on every action. Only add if clearly justified.`,
+          ? `### Current content — MERGE ONLY, never remove existing hooks:\n${vars.SETTINGS_CONTENT}\n\n`
+          : `Does not exist.\n\n`) +
+        `### When to create/update\n` +
+        `Add a hook ONLY if it runs on a pattern that repeats every session AND the cost is justified.\n` +
+        `Every hook adds overhead on every Claude Code action. Only add if clearly earned.\n\n` +
+        `### OS-correct hook format (detected: ${os})\n` +
+        (os === "Windows"
+          ? `Use: \`{ "command": "cmd", "args": ["/c", "<command>"] }\`\n`
+          : `Use: \`{ "command": "bash", "args": ["-c", "<command>"] }\`\n` +
+            `**Bash quoting rule**: never use bare \`"\` inside \`-c "..."\` — use \`\\x22\` instead.\n` +
+            `Replace \`'\` with \`\\x27\`, \`$\` in character classes with \`\\x24\`.\n`) +
+        `\n### Rules\n` +
+        `- If it exists above: audit quoting of existing hooks first, fix broken ones\n` +
+        `- Only add hooks for patterns that genuinely recur for this project type\n` +
+        `- Produce valid JSON only\n\n` +
+        `### Output\n` +
+        `Created/Updated: ✅ settings.json — [hook name and justification]\n` +
+        `Skipped: ⏭ settings.json — [why no hooks warranted]\n`,
     },
+
+    // --- Step 4: .claude/skills/ ---
     {
       filename: "stack-4-skills.md",
-      content: header + check +
-        `Read /stack-0-context for project info.\n\n` +
-        `## Target: .claude/skills/\nInstalled: ${vars.SKILLS_LIST}\n\n` +
-        `Only for recurring patterns. Use applies-when frontmatter. Empty is fine.`,
+      content: header + preamble +
+        `## Target: .claude/skills/\n` +
+        `Installed: ${vars.SKILLS_LIST}\n\n` +
+        `### When to create\n` +
+        `Create a skill ONLY if:\n` +
+        `- A recurring multi-step project-specific pattern exists in /stack-0-context\n` +
+        `- It is NOT something Claude already knows (standard patterns don't need skills)\n` +
+        `- It will save time across multiple Claude Code sessions\n\n` +
+        `### Rules\n` +
+        `- Use \`applies-when:\` frontmatter so skills load only when relevant, not every message\n` +
+        `- If a similar skill already exists above: extend it, don't create a parallel one\n` +
+        `- Empty is valid — no skills is better than useless skills\n\n` +
+        `### Output\n` +
+        `Created: ✅ .claude/skills/[name] — [what pattern it captures]\n` +
+        `Skipped: ⏭ skills — checked [patterns], found [nothing project-specific]\n`,
     },
+
+    // --- Step 5: .claude/commands/ ---
     {
       filename: "stack-5-commands.md",
-      content: header + check +
-        `Read /stack-0-context for project info.\n\n` +
-        `## Target: .claude/commands/ (not stack-*.md)\nInstalled: ${vars.COMMANDS_LIST}\n\n` +
-        `Only useful commands for this project type. No duplicates.`,
+      content: header + preamble +
+        `## Target: .claude/commands/ (excluding stack-*.md — those are setup artifacts)\n` +
+        `Installed: ${vars.COMMANDS_LIST}\n\n` +
+        `### When to create\n` +
+        `Create a command ONLY for project-specific multi-step workflows a developer repeats:\n` +
+        `- Deploy sequences\n` +
+        `- Database migration + seed\n` +
+        `- Release workflows\n` +
+        `- Environment setup for a new contributor\n\n` +
+        `Do NOT create commands for things expressible as a single shell alias.\n` +
+        `Look at the scripts in /stack-0-context for evidence of multi-step workflows.\n\n` +
+        `### Rules\n` +
+        `- If existing commands cover the same workflow: skip\n` +
+        `- Commands should be specific to this project, not generic\n\n` +
+        `### Output\n` +
+        `Created: ✅ .claude/commands/[name].md — [what workflow and why useful]\n` +
+        `Skipped: ⏭ commands — [why no project-specific workflows found]\n`,
     },
+
+    // --- Step 6: .github/workflows/ ---
     {
       filename: "stack-6-workflows.md",
-      content: header + check +
-        `## Target: .github/workflows/\n.github/ exists: ${vars.HAS_GITHUB_DIR}\nInstalled: ${vars.WORKFLOWS_LIST}\n\n` +
+      content: header +
+        `## Target: .github/workflows/\n` +
+        `.github/ exists: ${vars.HAS_GITHUB_DIR}\n` +
+        `Installed: ${vars.WORKFLOWS_LIST}\n\n` +
         (state.hasGithubDir
-          ? `Only warranted workflows. Don't touch existing ones.`
-          : `Only create if clearly warranted.`),
+          ? (
+            `### What to do\n` +
+            `Check /stack-0-context for CI evidence: tests dir, Dockerfile, CI-related scripts.\n` +
+            `If evidence found, print EXACTLY:\n\n` +
+            `\`\`\`\n` +
+            `⚙️  CI/CD GATE — action required\n\n` +
+            `Evidence found:\n` +
+            `  [list each piece of evidence]\n\n` +
+            `Two questions before I proceed:\n` +
+            `  1. Set up CI/CD? (yes / no / later)\n` +
+            `  2. Connected to a remote GitHub repo? (yes / no)\n\n` +
+            `I will not write .github/workflows/ until you answer.\n` +
+            `\`\`\`\n\n` +
+            `### Rules\n` +
+            `- NEVER create or modify workflows without explicit developer confirmation\n` +
+            `- If existing workflows exist: do not touch them\n` +
+            `- Secrets must use \`\${{ secrets.VARNAME }}\` syntax only\n`
+          )
+          : (
+            `### .github/ does not exist\n` +
+            `Do not create workflows. Print:\n` +
+            `Skipped: ⏭ .github/workflows/ — .github/ directory does not exist\n`
+          )),
     },
   ]
 

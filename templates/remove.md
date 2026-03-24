@@ -2,7 +2,7 @@
 
 Remove from setup: "{{USER_INPUT}}"
 
-## Current setup
+## Current setup — read everything before touching any file
 
 {{#if HAS_CLAUDE_MD}}
 ### CLAUDE.md
@@ -22,10 +22,15 @@ Remove from setup: "{{USER_INPUT}}"
 Skills: {{SKILLS_LIST}} | Commands: {{COMMANDS_LIST}} | Workflows: {{WORKFLOWS_LIST}}
 
 ## Rules
-- Remove only related content. Never delete entire files.
-- Files must remain valid after edit (JSON stays valid, etc.)
-- If not found: say so and stop.
+- Find everything related to the removal request across ALL files above.
+- Remove surgically — section by section, key by key.
+- Never delete an entire file. Remove only the relevant section.
+- Never remove content unrelated to the request.
+- After every edit, the file MUST remain valid (JSON stays valid JSON, etc.)
+- If not found anywhere: say so and stop.
+- Check for dangling references: if removing an MCP server, check if any hook or skill references its env vars.
 
 ## Output — one line per file
-Removed: ✅ [path] — [what removed]
+Removed: ✅ [path] — [what was removed]
 Not found: ⏭ [path] — not referenced
+Dangling: ⚠️ [path] — still references [removed thing]

@@ -4,6 +4,7 @@ import { collectProjectFiles } from "../collect.js"
 import { readState } from "../state.js"
 import { updateManifest } from "../manifest.js"
 import { buildRemoveCommand } from "../builder.js"
+import { c } from "../output.js"
 
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
@@ -37,5 +38,5 @@ export async function runRemove(): Promise<void> {
   writeFileSync(".claude/commands/stack-remove.md", content, "utf8")
   await updateManifest("remove", collected, { input: userInput })
 
-  console.log(`\n✅ Ready. Open Claude Code and run:\n   /stack-remove\n`)
+  console.log(`\n${c.green("✅")} Ready. Open Claude Code and run:\n   ${c.cyan("/stack-remove")}\n`)
 }

@@ -1,16 +1,19 @@
 <!-- claude-setup sync {{DATE}} | last: {{LAST_RUN_DATE}} -->
 
-Project changed since last setup. Update only what the changes demand.
+Project changed since last setup. Update ONLY what the changes demand.
 
-## Changes
-### Added
+## Changes since last setup
+
+### Added files
 {{ADDED_FILES}}
-### Modified
+
+### Modified files
 {{MODIFIED_FILES}}
-### Deleted
+
+### Deleted files
 {{DELETED_FILES}}
 
-## Current setup
+## Current setup — read before touching
 
 {{#if HAS_CLAUDE_MD}}
 ### CLAUDE.md
@@ -29,11 +32,23 @@ Project changed since last setup. Update only what the changes demand.
 
 Skills: {{SKILLS_LIST}} | Commands: {{COMMANDS_LIST}}
 
-## Rules
-- Surgical edits only. Don't rewrite files. Don't update unchanged things.
-- If unsure about a change's implication: flag it, don't guess.
+## Your job
 
-## Output — one line per file
-Updated: ✅ [path] — triggered by: [which change and why]
-Skipped: ⏭ [path] — [why no implication]
-Flagged: ⚠️ [needs developer decision]
+For EACH changed file: does this change have any implication for the Claude Code setup?
+
+Reason about the signal:
+- New dependency → new MCP server needed? New hook justified?
+- New docker-compose service → new MCP entry? Env vars changed?
+- Source file added/removed → CLAUDE.md paths stale? Skill still applies?
+- Config deleted → remove its MCP/hook reference if it was the only evidence?
+
+Update ONLY what the change demands.
+Do NOT update things that did not change.
+Do NOT rewrite files — surgical edits only.
+If unsure about a change's implication: flag it, don't guess.
+
+## Output — one line per file, nothing else
+
+Updated: ✅ [path] — triggered by: [which changed file and why]
+Skipped: ⏭ [path] — [why this change has no setup implication]
+Flagged: ⚠️ [something that needs the developer's decision]

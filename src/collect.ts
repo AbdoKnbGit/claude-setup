@@ -1,7 +1,7 @@
 import { readFileSync, existsSync, statSync, readdirSync } from "fs"
 import { glob } from "glob"
 import { join, extname, basename, dirname } from "path"
-import { loadConfig, SetupConfig } from "./config.js"
+import { loadConfig, applyTruncation, SetupConfig } from "./config.js"
 
 // --- Public interface ---
 
@@ -45,7 +45,7 @@ const BLOCKED_EXTENSIONS = new Set([
 
 const BLOCKED_FILES = new Set([
   "go.sum", "poetry.lock", "Pipfile.lock", "composer.lock",
-  ".DS_Store", "Thumbs.db", "package-lock.json",
+  ".DS_Store", "Thumbs.db",
 ])
 
 const SOURCE_EXTENSIONS = new Set([
@@ -61,13 +61,15 @@ const PRIMARY_SOURCE_DIRS = ["src", "app", "lib", "core", "pkg", "internal", "ap
 
 // Config files the CLI knows how to find — but NOT what they mean
 const KNOWN_CONFIG_FILES = [
-  "package.json", "pyproject.toml", "setup.py", "requirements.txt", "Pipfile",
+  "package.json", "package-lock.json", "pyproject.toml", "setup.py",
+  "requirements.txt", "Pipfile",
   "go.mod", "Cargo.toml", "pom.xml", "build.gradle", "build.gradle.kts",
   "composer.json", "Gemfile", "turbo.json", "nx.json", "pnpm-workspace.yaml",
   "lerna.json", ".env.example", ".env.sample", ".env.template",
   "docker-compose.yml", "docker-compose.yaml", "Dockerfile",
   "tsconfig.json", "Makefile",
 ]
+
 
 // --- Main collection function ---
 
@@ -496,17 +498,48 @@ async function collectRawConfigs(
   configs: Record<string, string>,
   skipped: CollectedFiles["skipped"]
 ): Promise<void> {
+  const config = loadConfig(cwd)
+
   for (const name of KNOWN_CONFIG_FILES) {
     const p = join(cwd, name)
     if (existsSync(p)) {
       try {
-        const content = readFileSync(p, "utf8")
-        configs[name] = content.length > 4000 ? content.slice(0, 4000) + "\n[... truncated]" : content
+        const raw = readFileSync(p, "utf8")
+        // Dynamic truncation — driven by config, not hardcoded
+        configs[name] = applyTruncation(name, raw, config)
       } catch {
         skipped.push({ path: name, reason: "could not read" })
       }
     }
   }
+
+  // Scan for *.config.{js,ts,mjs} at root level — truncation from config
+  try {
+    for (const ext of ["js", "ts", "mjs"]) {
+      const matches = await glob(`*.config.${ext}`, { cwd, nodir: true })
+      for (const match of matches) {
+        if (configs[match]) continue
+        const p = join(cwd, match)
+        try {
+          const content = readFileSync(p, "utf8")
+          configs[match] = applyTruncation(match, content, config)
+        } catch { /* skip */ }
+      }
+    }
+  } catch { /* skip */ }
+
+  // Scan for *.csproj at root level
+  try {
+    const csprojFiles = await glob("*.csproj", { cwd, nodir: true })
+    for (const match of csprojFiles) {
+      if (configs[match]) continue
+      const p = join(cwd, match)
+      try {
+        const content = readFileSync(p, "utf8")
+        configs[match] = applyTruncation(match, content, config)
+      } catch { /* skip */ }
+    }
+  } catch { /* skip */ }
 }
 
 // --- Source file discovery ---

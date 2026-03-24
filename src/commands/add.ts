@@ -4,6 +4,7 @@ import { collectProjectFiles } from "../collect.js"
 import { readState } from "../state.js"
 import { updateManifest } from "../manifest.js"
 import { buildAddCommand } from "../builder.js"
+import { c } from "../output.js"
 
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
@@ -20,6 +21,8 @@ async function promptFreeText(question: string): Promise<string> {
 }
 
 // Conservative — only redirect when unambiguously single-file
+// False negatives (multi-step for single-file request) are fine
+// False positives (redirecting a genuinely multi-file request) are bad
 function isSingleFileOperation(input: string): boolean {
   return (
     /to \.mcp\.json\s*$/i.test(input) ||
@@ -43,7 +46,7 @@ export async function runAdd(): Promise<void> {
 For single changes, Claude Code is faster:
   Just tell it: "${userInput}"
 
-Use claude-setup add when the change spans multiple files —
+Use ${c.cyan("claude-setup add")} when the change spans multiple files —
 capabilities that need documentation, MCP servers, skills, and hooks together.
     `)
     return
@@ -58,5 +61,5 @@ capabilities that need documentation, MCP servers, skills, and hooks together.
   writeFileSync(".claude/commands/stack-add.md", content, "utf8")
   await updateManifest("add", collected, { input: userInput })
 
-  console.log(`\n✅ Ready. Open Claude Code and run:\n   /stack-add\n`)
+  console.log(`\n${c.green("✅")} Ready. Open Claude Code and run:\n   ${c.cyan("/stack-add")}\n`)
 }
