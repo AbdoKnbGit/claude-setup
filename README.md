@@ -52,30 +52,7 @@ npx claude-setup doctor --verbose  # Include passing checks in output
 - `.claude/commands/` — project-specific slash commands
 - `.github/workflows/` — CI workflows (only if `.github/` exists)
 
-## Token cost controls
 
-Every byte injected into command files costs tokens. The CLI enforces:
-
-| Control | Default |
-|---------|---------|
-| Init token budget | 12,000 |
-| Sync token budget | 6,000 |
-| Add token budget | 3,000 |
-| Remove token budget | 2,000 |
-| Max source files sampled | 15 |
-| Max file size | 80KB |
-| Max depth | 6 levels |
-
-### File-specific truncation
-
-| File | Strategy |
-|------|----------|
-| `package-lock.json` | Extract `{ name, version, lockfileVersion }` only |
-| `Dockerfile` | First 50 lines |
-| `docker-compose.yml` | First 100 lines if > 8KB |
-| `pom.xml`, `build.gradle*` | First 80 lines |
-| `setup.py` | First 60 lines |
-| `*.config.{js,ts,mjs}` | First 100 lines |
 
 ## Configuration
 
