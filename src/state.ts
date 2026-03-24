@@ -27,9 +27,13 @@ export async function readState(cwd: string = process.cwd()): Promise<ExistingSt
   const mcpJson = readIfExists(mcpJsonPath)
   const settings = readIfExists(settingsPath)
 
+  // Scan all three skill patterns and deduplicate (Bug 4 fix)
   let skills: string[] = []
   try {
-    skills = await glob(".claude/skills/*/SKILL.md", { cwd, posix: true })
+    const structured = await glob(".claude/skills/*/SKILL.md", { cwd, posix: true })
+    const flat = await glob(".claude/skills/*.md", { cwd, posix: true })
+    const nested = await glob(".claude/skills/**/*.md", { cwd, posix: true })
+    skills = [...new Set([...structured, ...flat, ...nested])]
   } catch { /* no skills */ }
 
   let commands: string[] = []

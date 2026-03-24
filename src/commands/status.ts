@@ -59,7 +59,7 @@ export async function runStatus(): Promise<void> {
     const settings = safeJsonParse(state.settings.content)
     let hookCount = 0
     if (settings) {
-      for (const key of ["PreToolUse", "PostToolUse", "PreCompact", "PostCompact", "Notification", "Stop", "SubagentStop"]) {
+      for (const key of ["PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop", "SessionStart"]) {
         const hooks = settings[key]
         if (Array.isArray(hooks)) hookCount += hooks.length
       }

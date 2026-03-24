@@ -1,4 +1,5 @@
-import { writeFileSync, mkdirSync, existsSync } from "fs"
+import { writeFileSync, mkdirSync, existsSync, readFileSync } from "fs"
+import { join } from "path"
 import { collectProjectFiles, CollectedFiles } from "../collect.js"
 import { readState } from "../state.js"
 import { readManifest, sha256, updateManifest } from "../manifest.js"
@@ -55,10 +56,38 @@ export async function runSync(opts: { dryRun?: boolean } = {}): Promise<void> {
   }
 
   const lastRun = manifest.runs.at(-1)!
-  const collected = await collectProjectFiles(process.cwd(), "normal")
+  const cwd = process.cwd()
+
+  // --- Out-of-band edit detection ---
+  // Check if CLI-managed files were modified outside the CLI (e.g. by Claude Code directly)
+  const managedFiles: Array<{ label: string; path: string; snapshotKey: string }> = [
+    { label: "CLAUDE.md", path: join(cwd, "CLAUDE.md"), snapshotKey: "CLAUDE.md" },
+    { label: ".mcp.json", path: join(cwd, ".mcp.json"), snapshotKey: ".mcp.json" },
+    { label: "settings.json", path: join(cwd, ".claude", "settings.json"), snapshotKey: ".claude/settings.json" },
+  ]
+
+  let oobDetected = false
+  for (const mf of managedFiles) {
+    if (!existsSync(mf.path)) continue
+    const currentContent = readFileSync(mf.path, "utf8")
+    const currentHash = sha256(currentContent)
+    const snapshotHash = lastRun.snapshot[mf.snapshotKey]
+
+    if (snapshotHash && currentHash !== snapshotHash) {
+      if (!oobDetected) {
+        oobDetected = true
+        console.log("")
+      }
+      console.log(`${c.yellow("⚠️")}  OUT-OF-BAND EDIT — ${mf.label} was modified outside the CLI`)
+      console.log(`    Re-snapshotting. Run ${c.cyan("npx claude-setup doctor")} to validate the new state.`)
+    }
+  }
+  if (oobDetected) console.log("")
+
+  const collected = await collectProjectFiles(cwd, "normal")
   const diff = computeDiff(lastRun.snapshot, collected)
 
-  if (!diff.added.length && !diff.changed.length && !diff.deleted.length) {
+  if (!diff.added.length && !diff.changed.length && !diff.deleted.length && !oobDetected) {
     console.log(`${c.green("✅")} No changes since ${c.dim(lastRun.at)}. Setup is current.`)
     return
   }

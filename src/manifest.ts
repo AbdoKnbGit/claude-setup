@@ -71,6 +71,19 @@ export async function updateManifest(
     snapshot[path] = sha256(content)
   }
 
+  // Also snapshot CLI-managed files for out-of-band edit detection
+  const managedFiles = [
+    { key: "CLAUDE.md", path: join(cwd, "CLAUDE.md") },
+    { key: ".mcp.json", path: join(cwd, ".mcp.json") },
+    { key: ".claude/settings.json", path: join(cwd, ".claude", "settings.json") },
+  ]
+  for (const mf of managedFiles) {
+    if (existsSync(mf.path)) {
+      const content = readFileSync(mf.path, "utf8")
+      snapshot[mf.key] = sha256(content)
+    }
+  }
+
   const filesRead = [
     ...Object.keys(collected.configs),
     ...collected.source.map(s => s.path),

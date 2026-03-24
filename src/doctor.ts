@@ -3,7 +3,7 @@ import { execSync } from "child_process"
 import { join } from "path"
 import { readManifest } from "./manifest.js"
 import { readState } from "./state.js"
-import { detectOS } from "./os.js"
+import { detectOS, VERIFIED_MCP_PACKAGES } from "./os.js"
 import { c, statusLine, section } from "./output.js"
 
 function tryExec(cmd: string): string | null {
@@ -70,6 +70,26 @@ export async function runDoctor(verbose = false): Promise<void> {
     counts.warnings++
   }
 
+  // --- Check 2b: Out-of-band edit detection ---
+  if (lastRun) {
+    const { createHash } = await import("crypto")
+    const oobFiles: Array<{ label: string; path: string; snapshotKey: string }> = [
+      { label: "CLAUDE.md", path: join(process.cwd(), "CLAUDE.md"), snapshotKey: "CLAUDE.md" },
+      { label: ".mcp.json", path: join(process.cwd(), ".mcp.json"), snapshotKey: ".mcp.json" },
+      { label: "settings.json", path: join(process.cwd(), ".claude", "settings.json"), snapshotKey: ".claude/settings.json" },
+    ]
+    for (const mf of oobFiles) {
+      if (!existsSync(mf.path)) continue
+      const content = readFileSync(mf.path, "utf8")
+      const currentHash = createHash("sha256").update(content).digest("hex")
+      const snapshotHash = lastRun.snapshot[mf.snapshotKey]
+      if (snapshotHash && currentHash !== snapshotHash) {
+        statusLine("⚠️ ", mf.label, c.yellow("modified outside the CLI since last run — run sync to re-snapshot"))
+        counts.warnings++
+      }
+    }
+  }
+
   // --- Check 3: OS/MCP format mismatch ---
   if (state.mcpJson.content) {
     section("MCP servers")
@@ -94,6 +114,36 @@ export async function runDoctor(verbose = false): Promise<void> {
           statusLine("✅", name, `valid, OS-format correct (${cmd})`)
           counts.healthy++
         }
+
+        // Check for missing -y flag in npx args
+        const args = config.args as string[] | undefined
+        if (args) {
+          const npxIndex = args.indexOf("npx")
+          if (npxIndex >= 0 && args[npxIndex + 1] !== "-y") {
+            statusLine("⚠️ ", name, c.yellow(`npx without -y flag — installs may hang`))
+            counts.warnings++
+          }
+
+          // Check for hardcoded connection strings in args
+          for (const arg of args) {
+            if (/^(postgresql|postgres|mysql|mongodb|redis|amqp):\/\//.test(arg)) {
+              statusLine("🔴", name, c.red(`HARDCODED connection string in args — move to env: { "DATABASE_URL": "\${DATABASE_URL}" }`))
+              counts.critical++
+              break
+            }
+          }
+        }
+      }
+      // Check for channel-type servers
+      const channelNames = ["telegram", "discord", "fakechat"]
+      for (const [name] of Object.entries(servers)) {
+        if (channelNames.includes(name.toLowerCase())) {
+          statusLine("⚠️ ", `${name} (CHANNEL)`, c.yellow(
+            `channel server detected — .mcp.json alone does not activate delivery. ` +
+            `Launch with: claude --channels plugin:${name.toLowerCase()}@claude-plugins-official`
+          ))
+          counts.warnings++
+        }
       }
     } else if (mcp) {
       // Check for flat structure (some .mcp.json files use flat keys)
@@ -110,9 +160,25 @@ export async function runDoctor(verbose = false): Promise<void> {
     const settings = safeJsonParse(state.settings.content)
     if (settings) {
       const hookCategories = [
-        "PreToolUse", "PostToolUse", "PreCompact", "PostCompact",
-        "Notification", "Stop", "SubagentStop"
+        "PreToolUse", "PostToolUse", "PostToolUseFailure",
+        "Stop", "SessionStart"
       ]
+      // Bug 6: Check for model override
+      if (settings["model"]) {
+        statusLine("⚠️ ", "MODEL OVERRIDE", c.yellow(`"model": "${settings["model"]}" in settings.json forces this model on every session. Remove it if not intentional.`))
+        counts.warnings++
+      }
+
+      // Check for invalid hook event names
+      const validHookNames = new Set(hookCategories)
+      for (const key of Object.keys(settings)) {
+        if (key === "permissions" || key === "model" || key === "env" || key === "allowedTools") continue
+        if (Array.isArray(settings[key]) && !validHookNames.has(key)) {
+          statusLine("🔴", `"${key}"`, c.red(`INVALID hook event name. Valid names: ${hookCategories.join(", ")}`))
+          counts.critical++
+        }
+      }
+
       let foundHooks = false
       for (const category of hookCategories) {
         const hooks = settings[category]

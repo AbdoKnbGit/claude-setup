@@ -23,12 +23,27 @@ export function detectOS(): DetectedOS {
   return "Linux"
 }
 
-/** MCP command format per OS */
+/**
+ * Verified MCP package names — ONLY use these.
+ * If a service is not in this map, do not guess a package name.
+ */
+export const VERIFIED_MCP_PACKAGES: Record<string, string> = {
+  playwright:  "@playwright/mcp@latest",
+  postgres:    "@modelcontextprotocol/server-postgres",
+  filesystem:  "@modelcontextprotocol/server-filesystem",
+  memory:      "@modelcontextprotocol/server-memory",
+  github:      "@modelcontextprotocol/server-github",
+  brave:       "@modelcontextprotocol/server-brave-search",
+  puppeteer:   "@modelcontextprotocol/server-puppeteer",
+  slack:       "@modelcontextprotocol/server-slack",
+}
+
+/** MCP command format per OS — always includes -y to prevent npx install hangs */
 export function mcpCommandFormat(os: DetectedOS, pkg: string): { command: string; args: string[] } {
   if (os === "Windows") {
-    return { command: "cmd", args: ["/c", "npx", pkg] }
+    return { command: "cmd", args: ["/c", "npx", "-y", pkg] }
   }
-  return { command: "npx", args: [pkg] }
+  return { command: "npx", args: ["-y", pkg] }
 }
 
 /** Hook shell format per OS */

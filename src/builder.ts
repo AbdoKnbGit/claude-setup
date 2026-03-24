@@ -4,7 +4,7 @@ import { fileURLToPath } from "url"
 import { CollectedFiles } from "./collect.js"
 import { ExistingState } from "./state.js"
 import { loadConfig } from "./config.js"
-import { detectOS } from "./os.js"
+import { detectOS, VERIFIED_MCP_PACKAGES } from "./os.js"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const TEMPLATES_DIR = join(__dirname, "..", "templates")
@@ -281,14 +281,44 @@ export function buildAtomicSteps(collected: CollectedFiles, state: ExistingState
         `- Env var name in .env.example matching a known service pattern\n` +
         `- Explicit dependency on an MCP-compatible package\n\n` +
         `No evidence = no server. Do not invent services.\n\n` +
+        `### Verified MCP package names — ONLY use these\n` +
+        `\`\`\`\n` +
+        Object.entries(VERIFIED_MCP_PACKAGES).map(([k, v]) => `${k.padEnd(12)} → ${v}`).join("\n") +
+        `\n\`\`\`\n` +
+        `If the service is not in this list, print:\n` +
+        `\`⚠️ UNKNOWN PACKAGE — [service] MCP server not added: package name unverified. Find it at https://github.com/modelcontextprotocol/servers\`\n` +
+        `Do not add a placeholder. Do not guess.\n\n` +
         `### OS-correct format (detected: ${os})\n` +
         (os === "Windows"
-          ? `Use: \`{ "command": "cmd", "args": ["/c", "npx", "<package>"] }\`\n`
-          : `Use: \`{ "command": "npx", "args": ["<package>"] }\`\n`) +
+          ? `Use: \`{ "command": "cmd", "args": ["/c", "npx", "-y", "<package>"] }\`\n`
+          : `Use: \`{ "command": "npx", "args": ["-y", "<package>"] }\`\n`) +
+        `Always include \`-y\` in npx args to prevent install hangs.\n` +
+        `\n### Connection strings — NEVER hardcode\n` +
+        `Wrong: \`"args": [..., "postgresql://localhost:5432/db"]\`\n` +
+        `Right: \`"env": { "DATABASE_URL": "\${DATABASE_URL}" }\`\n` +
+        `All credentials and connection strings must go in \`env\` using \`\${VARNAME}\` syntax.\n` +
+        `After adding any server with env vars, flag them:\n` +
+        `\`⚠️ Add DATABASE_URL to .env.example and populate before starting Claude Code\`\n\n` +
         `\n### Rules\n` +
-        `- All env var refs use \`\${VARNAME}\` syntax\n` +
+        `- All env var refs use \`\${VARNAME}\` syntax — never literal values\n` +
         `- Produce valid JSON only\n` +
         `- If creating: document every new env var in .env.example\n\n` +
+        `### Channels (Telegram, Discord) — special MCP servers\n` +
+        `Channels are MCP servers that push events INTO a session. They require:\n` +
+        `- Claude Code v2.1.80+\n` +
+        `- claude.ai login (not API key / Console)\n` +
+        `- Bun runtime installed\n` +
+        `- \`--channels\` flag at EVERY session launch\n\n` +
+        `Verified channel plugins:\n` +
+        `\`\`\`\n` +
+        `Telegram → plugin:telegram@claude-plugins-official\n` +
+        `Discord  → plugin:discord@claude-plugins-official\n` +
+        `\`\`\`\n\n` +
+        `If adding a channel-type server, bot tokens must NEVER be hardcoded:\n` +
+        (os === "Windows"
+          ? `\`{ "command": "cmd", "args": ["/c", "bun", "run", "\${CLAUDE_PLUGIN_ROOT}/servers/telegram"], "env": { "TELEGRAM_BOT_TOKEN": "\${TELEGRAM_BOT_TOKEN}" } }\`\n`
+          : `\`{ "command": "bun", "args": ["run", "\${CLAUDE_PLUGIN_ROOT}/servers/telegram"], "env": { "TELEGRAM_BOT_TOKEN": "\${TELEGRAM_BOT_TOKEN}" } }\`\n`) +
+        `After adding, flag: \`⚠️ CHANNEL ACTIVATION REQUIRED — launch with: claude --channels plugin:telegram@claude-plugins-official\`\n\n` +
         `### Output\n` +
         `Created/Updated: ✅ .mcp.json — [what server and evidence source]\n` +
         `Skipped: ⏭ .mcp.json — checked [files], found [nothing], no action\n`,
@@ -311,7 +341,12 @@ export function buildAtomicSteps(collected: CollectedFiles, state: ExistingState
           : `Use: \`{ "command": "bash", "args": ["-c", "<command>"] }\`\n` +
             `**Bash quoting rule**: never use bare \`"\` inside \`-c "..."\` — use \`\\x22\` instead.\n` +
             `Replace \`'\` with \`\\x27\`, \`$\` in character classes with \`\\x24\`.\n`) +
-        `\n### Rules\n` +
+        `\n### Valid hook event names — use ONLY these\n` +
+        `\`PreToolUse\`, \`PostToolUse\`, \`PostToolUseFailure\`, \`Stop\`, \`SessionStart\`\n` +
+        `If unsure which event name to use: do not write the hook. Print:\n` +
+        `\`SKIPPED — hook event name uncertain. Valid names: PreToolUse, PostToolUse, PostToolUseFailure, Stop, SessionStart\`\n\n` +
+        `### Rules\n` +
+        `- **NEVER write a "model" key into settings.json** — it overrides the user's model selection silently\n` +
         `- If it exists above: audit quoting of existing hooks first, fix broken ones\n` +
         `- Only add hooks for patterns that genuinely recur for this project type\n` +
         `- Produce valid JSON only\n\n` +
@@ -347,19 +382,55 @@ export function buildAtomicSteps(collected: CollectedFiles, state: ExistingState
         `## Target: .claude/commands/ (excluding stack-*.md — those are setup artifacts)\n` +
         `Installed: ${vars.COMMANDS_LIST}\n\n` +
         `### When to create\n` +
-        `Create a command ONLY for project-specific multi-step workflows a developer repeats:\n` +
-        `- Deploy sequences\n` +
-        `- Database migration + seed\n` +
-        `- Release workflows\n` +
-        `- Environment setup for a new contributor\n\n` +
-        `Do NOT create commands for things expressible as a single shell alias.\n` +
-        `Look at the scripts in /stack-0-context for evidence of multi-step workflows.\n\n` +
+        `Create a command ONLY for project-specific multi-step workflows a developer repeats.\n` +
+        `Do NOT create commands for things expressible as a single shell alias.\n\n` +
+        `### Smart environment detection\n` +
+        `Also scan for missing/incomplete environment setup:\n` +
+        `- \`.env.example\` exists but \`.env\` missing → suggest \`/setup-env\`\n` +
+        `- \`docker-compose.yml\` with \`depends_on\` → suggest \`/up\` with correct startup order\n` +
+        `- Database migration files (\`migrations/\`, \`prisma/schema.prisma\`, \`alembic/\`) → suggest \`/db:migrate\`, \`/db:rollback\`\n` +
+        `- \`package.json\` with \`"prepare"\` or \`"postinstall"\` hooks → suggest \`/install\`\n` +
+        `- \`Makefile\` with \`install\`, \`deps\`, \`bootstrap\` → fold into \`/init\`\n` +
+        `- README sections ("Environment Variables", "Database Setup") → each can become a command\n\n` +
+        `All suggestions must be built from actual project files — never assume fixed commands.\n` +
+        `Detect the real tooling (npm vs yarn vs pnpm, docker compose vs docker-compose) from project evidence.\n\n` +
+        `### REQUIRED: Scan for multi-step patterns before deciding\n` +
+        `You MUST actively scan these sources in /stack-0-context:\n` +
+        `- **Makefile targets**: multiple chained commands under one target\n` +
+        `- **package.json scripts**: chained commands with && or ;\n` +
+        `- **docker-compose.yml**: service dependencies implying a boot order\n` +
+        `- **Dockerfile**: multi-stage patterns implying a build sequence\n` +
+        `- **README.md / docs**: sections like "Getting Started", "How to run"\n` +
+        `- **Shell scripts** in /scripts or /bin\n` +
+        `- **.env.example**: many vars suggest a setup sequence\n\n` +
+        `### Pattern signatures to detect\n` +
+        `| Pattern found | Suggested command |\n` +
+        `|---------------|-------------------|\n` +
+        `| docker-compose down + volume removal + build + up | /clean-rebuild |\n` +
+        `| migrate + seed + start | /fresh-start |\n` +
+        `| build + test + deploy | /release |\n` +
+        `| lint + format + typecheck all separate | /check |\n` +
+        `| setup + install + configure in README or scripts | /init |\n` +
+        `| backup/restore scripts or pg_dump/mongodump | /db:backup, /db:restore |\n` +
+        `| test + test:watch + test:coverage | /test |\n` +
+        `| dev + start + debug in package.json | /dev |\n` +
+        `| >2 manual steps in README "how to run" | candidate for /start |\n\n` +
+        `For each pattern found, suggest to the user:\n` +
+        `\`\`\`\n` +
+        `## Suggested command: /[name]\n\n` +
+        `I found a multi-step pattern in [source]:\n` +
+        `  1. [step]\n` +
+        `  2. [step]\n\n` +
+        `Create .claude/commands/[name].md?\n` +
+        `\`\`\`\n\n` +
         `### Rules\n` +
         `- If existing commands cover the same workflow: skip\n` +
-        `- Commands should be specific to this project, not generic\n\n` +
+        `- Commands should be specific to this project, not generic\n` +
+        `- Adapt exact commands from actual project files — never hardcode\n` +
+        `- Never skip with a blanket "no workflows found" without scanning all sources above\n\n` +
         `### Output\n` +
         `Created: ✅ .claude/commands/[name].md — [what workflow and why useful]\n` +
-        `Skipped: ⏭ commands — [why no project-specific workflows found]\n`,
+        `Skipped: ⏭ commands — scanned [list each source checked and result]. Nothing warranted.\n`,
     },
 
     // --- Step 6: .github/workflows/ ---
@@ -389,9 +460,33 @@ export function buildAtomicSteps(collected: CollectedFiles, state: ExistingState
             `- Secrets must use \`\${{ secrets.VARNAME }}\` syntax only\n`
           )
           : (
-            `### .github/ does not exist\n` +
-            `Do not create workflows. Print:\n` +
-            `Skipped: ⏭ .github/workflows/ — .github/ directory does not exist\n`
+            `### .github/ does not exist — scan for CI/CD evidence before skipping\n\n` +
+            `The absence of .github/ is an opportunity to suggest, not a reason to stop.\n\n` +
+            `Scan /stack-0-context for CI/CD evidence:\n` +
+            `- \`tests/\` or \`__tests__/\` or \`spec/\` directory → test pipeline candidate\n` +
+            `- \`Dockerfile\` or \`docker-compose.yml\` → build + deploy pipeline candidate\n` +
+            `- \`package.json\` with build/test/lint scripts → Node CI candidate\n` +
+            `- \`Makefile\` with test/build/deploy targets → generic CI candidate\n` +
+            `- \`pyproject.toml\` with test config → Python CI candidate\n` +
+            `- README references to "deploy", "release", "staging", "production"\n\n` +
+            `If evidence found, print EXACTLY:\n` +
+            `\`\`\`\n` +
+            `⚙️  WORKFLOW SUGGESTION — .github/ does not exist\n\n` +
+            `Evidence that CI/CD would be useful:\n` +
+            `  [list each piece of evidence and its source]\n\n` +
+            `I can set up:\n` +
+            `  1. CI pipeline     — run tests + build on every push\n` +
+            `  2. Deploy pipeline — build image + push to registry on merge to main\n` +
+            `  3. Both\n\n` +
+            `Two questions before I create anything:\n` +
+            `  1. Which of the above? (1 / 2 / 3 / none)\n` +
+            `  2. Is this connected to a remote GitHub repository? (yes / no)\n` +
+            `\`\`\`\n\n` +
+            `If user confirms: create .github/workflows/ with workflows based on actual project commands.\n` +
+            `All secrets must use \`\${{ secrets.VARNAME }}\` syntax — never hardcoded.\n` +
+            `After writing, flag every secret: \`⚠️ Add [VARNAME] to GitHub Settings → Secrets\`\n\n` +
+            `If NO evidence found:\n` +
+            `Skipped: ⏭ .github/workflows/ — scanned: no tests dir, no Dockerfile, no build/deploy scripts, no deployment references. Nothing to automate.\n`
           )),
     },
   ]
