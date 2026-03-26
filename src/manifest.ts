@@ -10,6 +10,8 @@ export interface ManifestRun {
   input?: string
   filesRead: string[]
   snapshot: Record<string, string>
+  estimatedTokens?: number
+  estimatedCost?: { opus: number; sonnet: number; haiku: number }
 }
 
 export interface Manifest {
@@ -47,7 +49,7 @@ export async function readManifest(cwd: string = process.cwd()): Promise<Manifes
 export async function updateManifest(
   command: string,
   collected: CollectedFiles,
-  opts: { input?: string; cwd?: string } = {}
+  opts: { input?: string; cwd?: string; estimatedTokens?: number; estimatedCost?: { opus: number; sonnet: number; haiku: number } } = {}
 ): Promise<void> {
   const cwd = opts.cwd ?? process.cwd()
   const filePath = join(cwd, MANIFEST_FILENAME)
@@ -96,6 +98,8 @@ export async function updateManifest(
     ...(opts.input ? { input: opts.input } : {}),
     filesRead,
     snapshot,
+    ...(opts.estimatedTokens ? { estimatedTokens: opts.estimatedTokens } : {}),
+    ...(opts.estimatedCost ? { estimatedCost: opts.estimatedCost } : {}),
   }
 
   let manifest: Manifest

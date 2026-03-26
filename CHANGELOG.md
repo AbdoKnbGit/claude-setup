@@ -1,5 +1,44 @@
 # Changelog
 
+## v1.1.4 — Snapshots, Templates, Token Tracking, Doctor Auto-Fix (2026-03-26)
+
+Six new features that make claude-setup a complete project management layer.
+
+### New Commands
+
+**`restore` — Time-travel to any snapshot.**
+Every `init` and `sync` creates a snapshot node on a timeline. Each node stores the actual content of changed files. Run `npx claude-setup restore` to pick any snapshot and restore files to that state. Other snapshots are preserved — jump forward or back freely, like git checkout without losing branches.
+
+**`compare` — Diff any two snapshots.**
+Run `npx claude-setup compare` to see exactly what changed between two points in time. Shows files added, removed, and modified with line counts. Useful for finding where a bug was introduced.
+
+**`export` — Save your setup as a reusable template.**
+Run `npx claude-setup export` to capture your CLAUDE.md, MCP servers, hooks, skills, and commands into a portable `.claude-template.json` file. Share it with teammates or reuse across projects.
+
+### New Flags
+
+**`init --template <path|url>` — Apply a template to a new project.**
+Import a saved template instead of scanning from scratch. Merge logic: existing content is kept, new content is added. MCP commands are auto-adapted between Windows and macOS/Linux. Skills and commands with duplicate names are skipped.
+
+**`doctor --fix` — Auto-fix issues.**
+Removes accidental model overrides from settings.json, converts MCP commands to the correct OS format, adds missing `-y` flags to npx calls, and re-snapshots files modified outside the CLI.
+
+**`doctor --test-hooks` — Run every hook in a sandbox.**
+Spawns each hook command once, checks if the tool exists on the system, validates exit code and stderr, measures execution time, detects timeouts (10s), and validates matcher regex patterns. Reports pass/fail per hook.
+
+**`sync --budget <tokens>` — Override token budget for a single run.**
+Temporarily change the sync token budget without editing `.claude-setup.json`.
+
+### Token Cost Tracking
+
+Every command now shows estimated token usage and cost across Opus, Sonnet, and Haiku pricing. Token counts and costs are stored in the manifest per run. Status shows cumulative totals, per-command averages, and cost trends. Optimization hints suggest ways to reduce usage.
+
+### Status Dashboard
+
+Status now shows a snapshot timeline (last 8 nodes with restore/compare hints), token usage stats (total, averages, trends), and per-run token counts in the run history.
+
+---
+
 ## v1.1.3 — Bug Patch + Smarter Detection (2026-03-24)
 
 This release fixes 6 bugs that caused silent failures and adds intelligence rules so the tool actually thinks before skipping features.

@@ -32,20 +32,15 @@ CLAUDE.md → does not exist (create it)
 {{MCP_JSON_CONTENT}}
 
 OS detected: {{DETECTED_OS}}. Use correct MCP command format:
-- Windows: `{ "command": "cmd", "args": ["/c", "npx", "<package>"] }`
-- macOS/Linux: `{ "command": "npx", "args": ["<package>"] }`
+- Windows: `{ "command": "cmd", "args": ["/c", "npx", "-y", "<package>"] }`
+- macOS/Linux: `{ "command": "npx", "args": ["-y", "<package>"] }`
 {{else}}
-.mcp.json → does not exist (create only if you find evidence of external services)
+.mcp.json → does not exist (create if you find evidence of external services in deps, docker-compose, or env vars)
 {{/if}}
 
 {{#if HAS_SETTINGS}}
 ### .claude/settings.json — EXISTS — merge only, never remove existing hooks
 {{SETTINGS_CONTENT}}
-
-Hook shell format for {{DETECTED_OS}}:
-- Windows: `{ "command": "cmd", "args": ["/c", "<command>"] }`
-- macOS/Linux: `{ "command": "bash", "args": ["-c", "<command>"] }`
-- Bash quoting rule: never use bare `"` inside `-c "..."` — use `\x22` instead
 {{else}}
 settings.json → does not exist (create only if hooks are warranted)
 {{/if}}
@@ -70,21 +65,63 @@ actual conventions from the code. Generic advice belongs in docs, not here.
 If it exists: read it above first. Add only what is genuinely missing. Never remove.
 
 ### .mcp.json
-Only if you found evidence of external services in the config files, dependencies,
-or environment template. No evidence = no server.
+Create if you found evidence of external services in: dependencies, docker-compose services,
+env vars (DATABASE_URL, REDIS_URL, STRIPE_KEY, etc.), or import statements (pg, mysql2, mongoose, redis, stripe).
 If it exists: add to it. Never remove existing entries. Produce valid JSON.
-Use OS-correct command format (see above).
+Use OS-correct command format (see above). Always include `-y` in npx args.
+All credentials use `${VARNAME}` syntax — NEVER hardcode connection strings.
 
-### .claude/settings.json
+### .claude/settings.json — CORRECT HOOKS FORMAT
 Only if hooks genuinely earn their cost for this specific project.
 Every hook adds overhead on every Claude Code action.
+
+**Use this exact format:**
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "<shell command here>"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Before adding a build hook**, verify the tool is installed:
+- Wrap with existence check: `command -v mvn && mvn compile -q`
+- If not installed: skip the hook and warn the user
+- NEVER add a hook for a tool that doesn't exist
+
+**NEVER write a `"model"` key** — it overrides the user's model selection.
+
 If it exists: add to it. Never remove existing hooks.
-Use OS-correct shell format (see above).
+Use OS-correct shell format.
 
 ### .claude/skills/
-Only for patterns that recur across this codebase and benefit from automatic loading.
-Use `applies-when` frontmatter so skills load only when relevant.
-If a similar skill already exists: extend it.
+Create skills for patterns that recur across this codebase and benefit from automatic loading.
+Each skill must be a directory with SKILL.md:
+```
+.claude/skills/<name>/SKILL.md
+```
+With frontmatter:
+```yaml
+---
+name: skill-name
+description: When to use this skill
+---
+Instructions...
+```
+
+### .claude/commands/
+Create project-specific commands for multi-step workflows developers repeat.
+Based on what you find in scripts, Makefile, README, docker-compose.
 
 ### .github/workflows/
 Only if .github/ exists ({{HAS_GITHUB_DIR}}).

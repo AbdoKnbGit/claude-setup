@@ -4,7 +4,8 @@ import { collectProjectFiles } from "../collect.js"
 import { readState } from "../state.js"
 import { updateManifest } from "../manifest.js"
 import { buildRemoveCommand } from "../builder.js"
-import { c } from "../output.js"
+import { estimateTokens, estimateCost } from "../tokens.js"
+import { c, section } from "../output.js"
 
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
@@ -34,9 +35,21 @@ export async function runRemove(): Promise<void> {
   const collected = await collectProjectFiles(process.cwd(), "configOnly")
   const content = buildRemoveCommand(userInput, state)
 
+  // Token tracking
+  const tokens = estimateTokens(content)
+  const cost = estimateCost(tokens)
+
   ensureDir(".claude/commands")
   writeFileSync(".claude/commands/stack-remove.md", content, "utf8")
-  await updateManifest("remove", collected, { input: userInput })
+  await updateManifest("remove", collected, {
+    input: userInput,
+    estimatedTokens: tokens,
+    estimatedCost: cost,
+  })
 
-  console.log(`\n${c.green("✅")} Ready. Open Claude Code and run:\n   ${c.cyan("/stack-remove")}\n`)
+  console.log(`\n${c.green("✅")} Ready. Open Claude Code and run:\n   ${c.cyan("/stack-remove")}`)
+
+  section("Token cost")
+  console.log(`  ~${tokens.toLocaleString()} input tokens (${c.dim(`Opus $${cost.opus.toFixed(4)} | Sonnet $${cost.sonnet.toFixed(4)} | Haiku $${cost.haiku.toFixed(4)}`)})`)
+  console.log("")
 }

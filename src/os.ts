@@ -36,6 +36,11 @@ export const VERIFIED_MCP_PACKAGES: Record<string, string> = {
   brave:       "@modelcontextprotocol/server-brave-search",
   puppeteer:   "@modelcontextprotocol/server-puppeteer",
   slack:       "@modelcontextprotocol/server-slack",
+  sqlite:      "@modelcontextprotocol/server-sqlite",
+  stripe:      "@stripe/mcp@latest",
+  redis:       "@modelcontextprotocol/server-redis",
+  mysql:       "@benborla29/mcp-server-mysql",
+  mongodb:     "mcp-mongo-server",
 }
 
 /** MCP command format per OS — always includes -y to prevent npx install hangs */

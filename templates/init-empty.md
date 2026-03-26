@@ -24,12 +24,69 @@ If they gave no language: write a language-agnostic CLAUDE.md about the product 
 **.mcp.json**
 Only for services they explicitly mentioned or obviously required for their product type.
 If they said "not sure": do not create this file.
+If they mentioned a database, payment system, or external API, create .mcp.json.
+
+Use OS-correct format (detected: {{DETECTED_OS}}):
+```json
+{
+  "mcpServers": {
+    "server-name": {
+      "command": "npx",
+      "args": ["-y", "@package/name"],
+      "env": {
+        "API_KEY": "${API_KEY}"
+      }
+    }
+  }
+}
+```
+Windows format: use `"command": "cmd", "args": ["/c", "npx", "-y", "@package/name"]`
+
+Verified MCP packages:
+- postgres → @modelcontextprotocol/server-postgres
+- mysql → @benborla29/mcp-server-mysql
+- mongodb → mcp-mongo-server
+- redis → @modelcontextprotocol/server-redis
+- stripe → @stripe/mcp@latest
+- github → @modelcontextprotocol/server-github
+- filesystem → @modelcontextprotocol/server-filesystem
+- memory → @modelcontextprotocol/server-memory
+- playwright → @playwright/mcp@latest
 
 **.claude/settings.json**
 Only if the product type they described has clear patterns that benefit from hooks.
+Use the CORRECT hooks format:
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "<shell command>"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+**NEVER write a "model" key** — it overrides the user's model selection.
+**Before adding a build hook**, verify the tool is installed first.
 
 **.claude/skills/**
-Only if the product domain has patterns worth capturing. Empty is fine for a fresh start.
+Only if the product domain has patterns worth capturing. Each skill needs:
+```
+.claude/skills/<name>/SKILL.md
+```
+With frontmatter: `---\nname: ...\ndescription: ...\n---`
+Empty is fine for a fresh start.
+
+**.claude/commands/**
+Create project-appropriate commands based on what the user described.
+For example: /dev, /build, /test, /deploy — but only if the stack warrants them.
 
 **.github/workflows/**
 Only if they mentioned CI, deployment, or a specific hosting platform.

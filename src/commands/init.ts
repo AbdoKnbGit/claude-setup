@@ -8,18 +8,27 @@ import {
   buildAtomicSteps,
   buildOrchestratorCommand,
 } from "../builder.js"
-import { c } from "../output.js"
+import { createSnapshot, collectFilesForSnapshot } from "../snapshot.js"
+import { estimateTokens, estimateCost } from "../tokens.js"
+import { c, section } from "../output.js"
 import { ensureConfig } from "../config.js"
+import { applyTemplate } from "./export.js"
 
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
 }
 
-export async function runInit(opts: { dryRun?: boolean } = {}): Promise<void> {
+export async function runInit(opts: { dryRun?: boolean; template?: string } = {}): Promise<void> {
   const dryRun = opts.dryRun ?? false
 
+  // Feature H: --template flag — apply a template instead of scanning
+  if (opts.template) {
+    console.log(`Applying template: ${c.cyan(opts.template)}\n`)
+    await applyTemplate(opts.template)
+    return
+  }
+
   // Auto-generate .claude-setup.json if it doesn't exist
-  // Developer can edit it anytime to tune token budgets, truncation rules, etc.
   const configCreated = ensureConfig()
   if (configCreated) {
     console.log(`${c.dim("Created .claude-setup.json — edit to tune token budgets and truncation rules")}`)
@@ -31,18 +40,31 @@ export async function runInit(opts: { dryRun?: boolean } = {}): Promise<void> {
   if (isEmptyProject(collected)) {
     const content = buildEmptyProjectCommand()
 
+    // Token tracking
+    const tokens = estimateTokens(content)
+    const cost = estimateCost(tokens)
+
     if (dryRun) {
       console.log(c.bold("[DRY RUN] Would write:\n"))
-      console.log(`  .claude/commands/stack-init.md (${content.length} chars, ~${Math.ceil(content.length / 4)} tokens)`)
+      console.log(`  .claude/commands/stack-init.md (${content.length} chars, ~${tokens.toLocaleString()} tokens)`)
       console.log(`\n${c.dim("--- preview ---")}`)
       console.log(content.slice(0, 500))
       if (content.length > 500) console.log(c.dim(`\n... +${content.length - 500} chars`))
+
+      section("Token cost estimate")
+      console.log(`  ~${tokens.toLocaleString()} input tokens (Opus $${cost.opus.toFixed(4)} | Sonnet $${cost.sonnet.toFixed(4)} | Haiku $${cost.haiku.toFixed(4)})`)
       return
     }
 
     ensureDir(".claude/commands")
     writeFileSync(".claude/commands/stack-init.md", content, "utf8")
-    await updateManifest("init", collected)
+    await updateManifest("init", collected, { estimatedTokens: tokens, estimatedCost: cost })
+
+    // Feature A: Create initial snapshot node
+    const cwd = process.cwd()
+    const allPaths = [...Object.keys(collected.configs), ...collected.source.map(s => s.path)]
+    const snapshotFiles = collectFilesForSnapshot(cwd, allPaths)
+    createSnapshot(cwd, "init", snapshotFiles, { summary: "initial setup (empty project)" })
 
     console.log(`
 ${c.green("✅")} New project detected.
@@ -52,6 +74,10 @@ Open Claude Code and run:
 
 Claude Code will ask 3 questions, then set up your environment.
     `)
+
+    section("Token cost")
+    console.log(`  ~${tokens.toLocaleString()} input tokens (${c.dim(`Opus $${cost.opus.toFixed(4)} | Sonnet $${cost.sonnet.toFixed(4)} | Haiku $${cost.haiku.toFixed(4)}`)})`)
+    console.log("")
     return
   }
 
@@ -59,15 +85,22 @@ Claude Code will ask 3 questions, then set up your environment.
   const steps = buildAtomicSteps(collected, state)
   const orchestrator = buildOrchestratorCommand(steps)
 
+  // Token tracking — sum all steps
+  const totalContent = steps.map(s => s.content).join("\n") + "\n" + orchestrator
+  const tokens = estimateTokens(totalContent)
+  const cost = estimateCost(tokens)
+
   if (dryRun) {
     console.log(c.bold("[DRY RUN] Would write:\n"))
     for (const step of steps) {
-      const tokens = Math.ceil(step.content.length / 4)
-      console.log(`  .claude/commands/${step.filename} (${step.content.length} chars, ~${tokens} tokens)`)
+      const stepTokens = estimateTokens(step.content)
+      console.log(`  .claude/commands/${step.filename} (${step.content.length} chars, ~${stepTokens.toLocaleString()} tokens)`)
     }
     console.log(`  .claude/commands/stack-init.md (orchestrator)`)
-    const totalTokens = steps.reduce((sum, s) => sum + Math.ceil(s.content.length / 4), 0)
-    console.log(`\n${c.dim(`Total: ~${totalTokens} tokens across ${steps.length} files`)}`)
+    console.log(`\n${c.dim(`Total: ~${tokens.toLocaleString()} tokens across ${steps.length} files`)}`)
+
+    section("Token cost estimate")
+    console.log(`  ~${tokens.toLocaleString()} input tokens (Opus $${cost.opus.toFixed(4)} | Sonnet $${cost.sonnet.toFixed(4)} | Haiku $${cost.haiku.toFixed(4)})`)
     return
   }
 
@@ -76,7 +109,15 @@ Claude Code will ask 3 questions, then set up your environment.
     writeFileSync(join(".claude/commands", step.filename), step.content, "utf8")
   }
   writeFileSync(".claude/commands/stack-init.md", orchestrator, "utf8")
-  await updateManifest("init", collected)
+  await updateManifest("init", collected, { estimatedTokens: tokens, estimatedCost: cost })
+
+  // Feature A: Create initial snapshot node
+  const cwd = process.cwd()
+  const allPaths = [...Object.keys(collected.configs), ...collected.source.map(s => s.path)]
+  const snapshotFiles = collectFilesForSnapshot(cwd, allPaths)
+  createSnapshot(cwd, "init", snapshotFiles, {
+    summary: `${steps.length - 1} atomic steps generated`,
+  })
 
   console.log(`
 ${c.green("✅")} Ready. Open Claude Code and run:
@@ -84,4 +125,8 @@ ${c.green("✅")} Ready. Open Claude Code and run:
 
 Runs ${steps.length - 1} atomic steps. If one fails, re-run only that step.
   `)
+
+  section("Token cost")
+  console.log(`  ~${tokens.toLocaleString()} input tokens (${c.dim(`Opus $${cost.opus.toFixed(4)} | Sonnet $${cost.sonnet.toFixed(4)} | Haiku $${cost.haiku.toFixed(4)}`)})`)
+  console.log("")
 }

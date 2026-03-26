@@ -5,6 +5,7 @@ import { CollectedFiles } from "./collect.js"
 import { ExistingState } from "./state.js"
 import { loadConfig } from "./config.js"
 import { detectOS, VERIFIED_MCP_PACKAGES } from "./os.js"
+import { buildMarketplaceInstructions } from "./marketplace.js"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const TEMPLATES_DIR = join(__dirname, "..", "templates")
@@ -118,6 +119,7 @@ function buildFlags(_collected: CollectedFiles, state: ExistingState): Record<st
     HAS_MCP_JSON: state.mcpJson.exists,
     HAS_SETTINGS: state.settings.exists,
     HAS_GITHUB_DIR: state.hasGithubDir,
+    IS_WINDOWS: detectOS() === "Windows",
   }
 }
 
@@ -173,11 +175,19 @@ export function buildInitCommand(collected: CollectedFiles, state: ExistingState
 
 export function buildEmptyProjectCommand(): string {
   const template = loadTemplate("init-empty.md")
-  return replaceVars(template, { VERSION: getVersion(), DATE: new Date().toISOString().split("T")[0] })
+  const vars = { VERSION: getVersion(), DATE: new Date().toISOString().split("T")[0], DETECTED_OS: detectOS() }
+  const flags = { IS_WINDOWS: detectOS() === "Windows" }
+  let content = replaceVars(template, vars)
+  content = processConditionals(content, flags)
+  return content
 }
 
 export function buildAddCommand(input: string, collected: CollectedFiles, state: ExistingState): string {
-  return applyTemplate("add.md", collected, state, { USER_INPUT: input }, "add")
+  const marketplaceSection = buildMarketplaceInstructions(input)
+  return applyTemplate("add.md", collected, state, {
+    USER_INPUT: input,
+    MARKETPLACE_INSTRUCTIONS: marketplaceSection,
+  }, "add")
 }
 
 export interface FileDiff {
@@ -275,11 +285,13 @@ export function buildAtomicSteps(collected: CollectedFiles, state: ExistingState
           ? `### Current content — MERGE ONLY, never remove existing entries:\n${vars.MCP_JSON_CONTENT}\n\n`
           : `Does not exist.\n\n`) +
         `### When to create/update\n` +
-        `Add an MCP server ONLY if you find evidence in /stack-0-context:\n` +
-        `- Import statement referencing an external service\n` +
-        `- docker-compose service (database, cache, queue)\n` +
-        `- Env var name in .env.example matching a known service pattern\n` +
-        `- Explicit dependency on an MCP-compatible package\n\n` +
+        `Add an MCP server if you find ANY of these signals in /stack-0-context:\n` +
+        `- Import statement referencing an external service (e.g., pg, mysql2, mongoose, redis, stripe)\n` +
+        `- docker-compose service (database, cache, queue, message broker)\n` +
+        `- Env var name in .env.example matching a known service pattern (DATABASE_URL, REDIS_URL, STRIPE_KEY, etc.)\n` +
+        `- Explicit dependency on an MCP-compatible package\n` +
+        `- User mentioned external services during init questions\n\n` +
+        `If ANY evidence is found, create .mcp.json with the corresponding servers.\n` +
         `No evidence = no server. Do not invent services.\n\n` +
         `### Verified MCP package names — ONLY use these\n` +
         `\`\`\`\n` +
@@ -335,21 +347,53 @@ export function buildAtomicSteps(collected: CollectedFiles, state: ExistingState
         `### When to create/update\n` +
         `Add a hook ONLY if it runs on a pattern that repeats every session AND the cost is justified.\n` +
         `Every hook adds overhead on every Claude Code action. Only add if clearly earned.\n\n` +
-        `### OS-correct hook format (detected: ${os})\n` +
+        `### CORRECT Claude Code hooks format — USE THIS EXACTLY\n` +
+        `The hooks object must be nested inside a top-level \`"hooks"\` key.\n` +
+        `Each event contains an array of matcher objects, each with its own \`"hooks"\` array.\n\n` +
+        `\`\`\`json\n` +
+        `{\n` +
+        `  "hooks": {\n` +
+        `    "PostToolUse": [\n` +
+        `      {\n` +
+        `        "matcher": "Edit|Write",\n` +
+        `        "hooks": [\n` +
+        `          {\n` +
+        `            "type": "command",\n` +
+        `            "command": "<shell command here>"\n` +
+        `          }\n` +
+        `        ]\n` +
+        `      }\n` +
+        `    ]\n` +
+        `  }\n` +
+        `}\n` +
+        `\`\`\`\n\n` +
+        `**WRONG formats (do NOT use):**\n` +
+        `- \`"hooks": { "post-edit": ["mvn compile"] }\` — INVALID event name and structure\n` +
+        `- \`"PostToolUse": [{ "command": "bash", "args": [...] }]\` — missing top-level "hooks" key\n` +
+        `- \`{ "command": "cmd", "args": ["/c", "..."] }\` — old format, must use "type": "command"\n\n` +
+        `### Valid hook event names — use ONLY these\n` +
+        `\`PreToolUse\`, \`PostToolUse\`, \`PostToolUseFailure\`, \`Stop\`, \`SessionStart\`,\n` +
+        `\`Notification\`, \`UserPromptSubmit\`, \`PermissionRequest\`, \`ConfigChange\`,\n` +
+        `\`SubagentStart\`, \`SubagentStop\`, \`SessionEnd\`\n\n` +
+        `### Matcher patterns\n` +
+        `- \`"Edit|Write"\` — fires only on file edits\n` +
+        `- \`"Bash"\` — fires only on shell commands\n` +
+        `- \`""\` (empty) — fires on all occurrences of the event\n\n` +
+        `### BUG 8 FIX: Verify build tools exist BEFORE adding hooks\n` +
+        `Before adding any hook that runs a build tool, verify it is installed:\n` +
         (os === "Windows"
-          ? `Use: \`{ "command": "cmd", "args": ["/c", "<command>"] }\`\n`
-          : `Use: \`{ "command": "bash", "args": ["-c", "<command>"] }\`\n` +
-            `**Bash quoting rule**: never use bare \`"\` inside \`-c "..."\` — use \`\\x22\` instead.\n` +
-            `Replace \`'\` with \`\\x27\`, \`$\` in character classes with \`\\x24\`.\n`) +
-        `\n### Valid hook event names — use ONLY these\n` +
-        `\`PreToolUse\`, \`PostToolUse\`, \`PostToolUseFailure\`, \`Stop\`, \`SessionStart\`\n` +
-        `If unsure which event name to use: do not write the hook. Print:\n` +
-        `\`SKIPPED — hook event name uncertain. Valid names: PreToolUse, PostToolUse, PostToolUseFailure, Stop, SessionStart\`\n\n` +
+          ? `\`\`\`\nwhere mvn 2>nul && mvn compile -q\nwhere gradle 2>nul && gradle build\nwhere npm 2>nul && npm run build\n\`\`\`\n`
+          : `\`\`\`\ncommand -v mvn && mvn compile -q\ncommand -v gradle && gradle build\ncommand -v npm && npm run build\n\`\`\`\n`) +
+        `If the tool is NOT installed:\n` +
+        `- Wrap the command with an existence check: \`command -v mvn && mvn compile -q\`\n` +
+        `- OR skip the hook and print: \`⚠️ SKIPPED mvn hook — Maven not found. Install Maven first.\`\n` +
+        `- NEVER add a hook for a tool that doesn't exist on the system\n\n` +
         `### Rules\n` +
         `- **NEVER write a "model" key into settings.json** — it overrides the user's model selection silently\n` +
         `- If it exists above: audit quoting of existing hooks first, fix broken ones\n` +
         `- Only add hooks for patterns that genuinely recur for this project type\n` +
-        `- Produce valid JSON only\n\n` +
+        `- Produce valid JSON only\n` +
+        `- The \`"type"\` field in each hook must be one of: \`"command"\`, \`"prompt"\`, \`"agent"\`, \`"http"\`\n\n` +
         `### Output\n` +
         `Created/Updated: ✅ settings.json — [hook name and justification]\n` +
         `Skipped: ⏭ settings.json — [why no hooks warranted]\n`,
@@ -362,16 +406,37 @@ export function buildAtomicSteps(collected: CollectedFiles, state: ExistingState
         `## Target: .claude/skills/\n` +
         `Installed: ${vars.SKILLS_LIST}\n\n` +
         `### When to create\n` +
-        `Create a skill ONLY if:\n` +
+        `Create a skill if:\n` +
         `- A recurring multi-step project-specific pattern exists in /stack-0-context\n` +
-        `- It is NOT something Claude already knows (standard patterns don't need skills)\n` +
+        `- The project type has standard workflows worth automating (build, deploy, test patterns)\n` +
         `- It will save time across multiple Claude Code sessions\n\n` +
+        `### Correct skill file format\n` +
+        `Skills must be created as \`.claude/skills/<skill-name>/SKILL.md\` with YAML frontmatter:\n\n` +
+        `\`\`\`yaml\n` +
+        `---\n` +
+        `name: skill-name\n` +
+        `description: What this skill does and when to use it\n` +
+        `---\n\n` +
+        `Skill instructions here...\n` +
+        `\`\`\`\n\n` +
+        `Optional frontmatter fields:\n` +
+        `- \`disable-model-invocation: true\` — only user can invoke (for commands with side effects)\n` +
+        `- \`allowed-tools: Read, Grep\` — restrict which tools the skill can use\n` +
+        `- \`context: fork\` — run in isolated subagent\n` +
+        `- \`agent: Explore\` — which agent type to use with context: fork\n\n` +
+        `### Project-specific skills to consider\n` +
+        `Based on what you see in /stack-0-context, consider creating skills for:\n` +
+        `- Build/deploy workflows specific to this stack\n` +
+        `- Code review patterns specific to this codebase\n` +
+        `- Database migration patterns if migration files exist\n` +
+        `- Testing patterns if test infrastructure exists\n\n` +
         `### Rules\n` +
-        `- Use \`applies-when:\` frontmatter so skills load only when relevant, not every message\n` +
+        `- Use \`description:\` frontmatter so Claude knows when to load the skill\n` +
         `- If a similar skill already exists above: extend it, don't create a parallel one\n` +
-        `- Empty is valid — no skills is better than useless skills\n\n` +
+        `- Empty is valid — no skills is better than useless skills\n` +
+        `- Each skill directory MUST contain a SKILL.md file\n\n` +
         `### Output\n` +
-        `Created: ✅ .claude/skills/[name] — [what pattern it captures]\n` +
+        `Created: ✅ .claude/skills/[name]/SKILL.md — [what pattern it captures]\n` +
         `Skipped: ⏭ skills — checked [patterns], found [nothing project-specific]\n`,
     },
 

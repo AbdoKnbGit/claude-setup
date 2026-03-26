@@ -30,7 +30,7 @@ Project changed since last setup. Update ONLY what the changes demand.
 {{SETTINGS_CONTENT}}
 {{/if}}
 
-Skills: {{SKILLS_LIST}} | Commands: {{COMMANDS_LIST}}
+Skills: {{SKILLS_LIST}} | Commands: {{COMMANDS_LIST}} | Workflows: {{WORKFLOWS_LIST}}
 
 ## Your job
 
@@ -46,6 +46,25 @@ Update ONLY what the change demands.
 Do NOT update things that did not change.
 Do NOT rewrite files — surgical edits only.
 If unsure about a change's implication: flag it, don't guess.
+
+### Correct hooks format (if adding/modifying hooks)
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "<shell command>"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
 
 ## Output — one line per file, nothing else
 

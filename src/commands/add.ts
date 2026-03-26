@@ -4,7 +4,8 @@ import { collectProjectFiles } from "../collect.js"
 import { readState } from "../state.js"
 import { updateManifest } from "../manifest.js"
 import { buildAddCommand } from "../builder.js"
-import { c } from "../output.js"
+import { estimateTokens, estimateCost } from "../tokens.js"
+import { c, section } from "../output.js"
 
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
@@ -57,9 +58,21 @@ capabilities that need documentation, MCP servers, skills, and hooks together.
   const collected = await collectProjectFiles(process.cwd(), "configOnly")
   const content = buildAddCommand(userInput, collected, state)
 
+  // Token tracking
+  const tokens = estimateTokens(content)
+  const cost = estimateCost(tokens)
+
   ensureDir(".claude/commands")
   writeFileSync(".claude/commands/stack-add.md", content, "utf8")
-  await updateManifest("add", collected, { input: userInput })
+  await updateManifest("add", collected, {
+    input: userInput,
+    estimatedTokens: tokens,
+    estimatedCost: cost,
+  })
 
-  console.log(`\n${c.green("✅")} Ready. Open Claude Code and run:\n   ${c.cyan("/stack-add")}\n`)
+  console.log(`\n${c.green("✅")} Ready. Open Claude Code and run:\n   ${c.cyan("/stack-add")}`)
+
+  section("Token cost")
+  console.log(`  ~${tokens.toLocaleString()} input tokens (${c.dim(`Opus $${cost.opus.toFixed(4)} | Sonnet $${cost.sonnet.toFixed(4)} | Haiku $${cost.haiku.toFixed(4)}`)})`)
+  console.log("")
 }

@@ -2,9 +2,9 @@
 
 Setup layer for Claude Code. Reads your project, writes command files, Claude Code does the rest.
 
-**The CLI has zero intelligence.** All reasoning is delegated to Claude Code via the command files. The CLI reads files. Claude Code decides.
+**The CLI has zero intelligence.** All reasoning is delegated to Claude Code via the command files.
 
-## Install & Quick Start
+## Install
 
 ```bash
 npx claude-setup init
@@ -16,47 +16,128 @@ Then open Claude Code and run `/stack-init`.
 
 | Command | What it does |
 |---------|-------------|
-| `npx claude-setup init` | Full project setup — new or existing. Detects empty projects automatically. |
-| `npx claude-setup add` | Add a multi-file capability (MCP + hooks + skills together) |
-| `npx claude-setup sync` | Update setup after project changes (uses diff, not full re-scan) |
-| `npx claude-setup status` | Show current setup state — OS, servers, hooks, staleness |
-| `npx claude-setup doctor` | Validate environment — OS/MCP format, hook quoting, env vars, stale skills |
-| `npx claude-setup remove` | Remove a capability cleanly with dangling reference detection |
+| `init` | Full project setup — detects empty projects, generates atomic setup steps |
+| `add` | Add capabilities — MCP servers, skills, hooks, plugins in one go |
+| `sync` | Update setup after project changes — diff-based, not full re-scan |
+| `status` | Dashboard — project info, setup files, snapshots, token usage |
+| `doctor` | Validate everything — OS format, hooks, env vars, stale skills |
+| `remove` | Remove capabilities cleanly with dangling reference detection |
+| `restore` | Jump to any snapshot — restore files to a previous state |
+| `compare` | Diff two snapshots — find exactly where something changed |
+| `export` | Save your setup as a reusable template |
 
 ### Flags
 
 ```bash
-npx claude-setup init --dry-run    # Preview without writing
-npx claude-setup sync --dry-run    # Show changes without writing
-npx claude-setup doctor --verbose  # Include passing checks in output
+npx claude-setup init --dry-run            # Preview without writing
+npx claude-setup init --template my.json   # Apply a saved template
+npx claude-setup sync --dry-run            # Show changes without writing
+npx claude-setup sync --budget 3000        # Override token budget
+npx claude-setup doctor --verbose          # Include passing checks
+npx claude-setup doctor --fix              # Auto-fix issues
+npx claude-setup doctor --test-hooks       # Run every hook in sandbox
 ```
 
 ## How it works
 
-1. **CLI collects** — reads project files (configs, source samples) with strict token cost controls
-2. **CLI writes command files** — assembles markdown instructions into `.claude/commands/`
-3. **Claude Code executes** — you run `/stack-init` (or `/stack-sync`, etc.) in Claude Code
-
-## Three project states
-
-- **Empty project** — Claude Code asks 3 discovery questions, then sets up a tailored environment
-- **In development** — reads existing files, writes setup that references actual code patterns
-- **Production** — same as development; merge rules protect existing Claude config (append only, never rewrite)
+1. **CLI collects** — reads project files with strict token cost controls
+2. **CLI writes** — generates markdown instructions into `.claude/commands/`
+3. **Claude Code executes** — you run `/stack-init`, `/stack-sync`, etc.
 
 ## What it creates
 
-- `CLAUDE.md` — project-specific context for Claude Code
-- `.mcp.json` — MCP server connections (only if evidenced by project files, OS-correct format)
-- `.claude/settings.json` — hooks (only if warranted, OS-correct shell format)
-- `.claude/skills/` — reusable patterns (only if recurring, with `applies-when` frontmatter)
-- `.claude/commands/` — project-specific slash commands
-- `.github/workflows/` — CI workflows (only if `.github/` exists)
+| File | Purpose |
+|------|---------|
+| `CLAUDE.md` | Project-specific context for Claude Code |
+| `.mcp.json` | MCP server connections (only if evidenced by project files) |
+| `.claude/settings.json` | Hooks in correct Claude Code format |
+| `.claude/skills/` | Reusable patterns with frontmatter |
+| `.claude/commands/` | Project-specific slash commands |
+| `.github/workflows/` | CI workflows (only with confirmation) |
 
+## Snapshots
 
+Every `init` and `sync` creates a snapshot node — a checkpoint on a timeline. Snapshots store the content of changed files only.
+
+```
+init ──→ sync#1 ──→ sync#2 ──→ sync#3 (current)
+              │                    │
+              │                    └─ bug introduced here
+              └─ jump back here
+```
+
+- `npx claude-setup restore` — pick any snapshot and restore files to that state
+- `npx claude-setup compare` — diff any two snapshots to find what changed
+- Jumping does **not** delete other snapshots — all are preserved
+
+## Templates
+
+Save your setup and reuse it across projects.
+
+```bash
+# Export current setup
+npx claude-setup export
+# → creates my-template.claude-template.json
+
+# Apply to a new project
+npx claude-setup init --template my-template.claude-template.json
+
+# Apply from a URL
+npx claude-setup init --template https://example.com/template.json
+```
+
+Templates capture CLAUDE.md, MCP servers, hooks, skills, and commands. On import:
+- Existing content is kept, new content is merged
+- MCP commands are auto-adapted for the target OS
+- Skills and commands with the same name are skipped
+
+## Token Cost Tracking
+
+Every command shows estimated token usage and cost across all Claude models.
+
+```
+Token cost
+  ~2,450 input tokens (Opus $0.0368 | Sonnet $0.0074 | Haiku $0.0006)
+```
+
+Status shows cumulative stats, per-command averages, and cost trends. Use `--budget` on sync to override the token limit for a single run.
+
+## Doctor
+
+Validates your entire setup and reports issues by severity.
+
+```bash
+npx claude-setup doctor           # Check everything
+npx claude-setup doctor --fix     # Auto-fix what's possible
+npx claude-setup doctor --test-hooks  # Run each hook, report pass/fail
+```
+
+What `--fix` can repair:
+- Remove accidental model overrides from settings.json
+- Convert MCP commands to the correct OS format
+- Add missing `-y` flags to npx calls
+- Re-snapshot files modified outside the CLI
+
+What `--test-hooks` checks per hook:
+- Command exists on the system
+- Command executes without error
+- Exit code and stderr
+- Execution time and timeout detection
+- Matcher regex validity
+
+## Marketplace
+
+The `add` command integrates with [claude-code-plugins-plus-skills](https://github.com/jeremylongshore/claude-code-plugins-plus-skills) — 340+ plugins and 1,367+ skills across 20 categories.
+
+```bash
+npx claude-setup add
+# → "Stripe and frontend skills"
+# → generates stack-add.md with marketplace search + install instructions
+```
 
 ## Configuration
 
-Create `.claude-setup.json` in your project root to customize:
+Auto-generated on first run. Edit `.claude-setup.json` to customize:
 
 ```json
 {
@@ -70,27 +151,11 @@ Create `.claude-setup.json` in your project root to customize:
     "remove": 2000
   },
   "digestMode": true,
-  "extraBlockedDirs": ["my-custom-dir"],
-  "sourceDirs": ["src", "lib"]
+  "extraBlockedDirs": [],
+  "sourceDirs": []
 }
 ```
 
-## Digest mode
+## License
 
-When `digestMode` is enabled (default), the CLI extracts compact signal instead of dumping raw file content:
-
-- **Config files found** — just names, not content
-- **Dependencies** — extracted from any package manifest
-- **Scripts** — available commands/tasks
-- **Env vars** — names from `.env.example`
-- **Directory tree** — compact structure (3 levels deep)
-- **Source signatures** — imports, exports, declarations (not full content)
-
-## OS detection
-
-The CLI detects your OS and ensures command files tell Claude Code to use the correct format:
-
-- **Windows**: `{ "command": "cmd", "args": ["/c", "npx", "<package>"] }`
-- **macOS/Linux**: `{ "command": "npx", "args": ["<package>"] }`
-
-`doctor` checks for mismatches and reports them as critical issues.
+MIT

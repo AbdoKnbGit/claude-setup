@@ -30,8 +30,32 @@ Before removing anything, scan these locations directly:
 - Skills   : `.claude/skills/*/SKILL.md`, `.claude/skills/*.md`, `.claude/skills/**/*.md`
 - Commands : `.claude/commands/*.md` (exclude stack-*.md)
 - MCP      : read `.mcp.json` directly
-- Hooks    : read `.claude/settings.json` directly
+- Hooks    : read `.claude/settings.json` → look inside the `"hooks"` key
 - CLAUDE.md: read the file directly
+- Plugins  : check `/plugin` installed list
+
+## What to remove for each type
+
+### MCP servers
+- Remove the server entry from `.mcp.json` → `mcpServers.<name>`
+- Remove corresponding env vars from `.env.example` (if no other server uses them)
+- Remove references in CLAUDE.md
+
+### Hooks
+- Remove from `.claude/settings.json` → `hooks.<EventName>` entries
+- Hooks use this structure: `{ "hooks": { "PostToolUse": [{ "matcher": "...", "hooks": [...] }] } }`
+- Remove the entire matcher entry if removing all hooks for that matcher
+
+### Skills
+- Delete the skill directory: `.claude/skills/<name>/` (entire directory including SKILL.md)
+- Or delete the flat skill file: `.claude/skills/<name>.md`
+
+### Plugins
+- Suggest: `/plugin uninstall <name>@<marketplace>`
+- Print the exact uninstall command for the user
+
+### Commands
+- Delete the command file: `.claude/commands/<name>.md`
 
 Before deleting, list every reference found and confirm scope:
 ```
@@ -45,7 +69,7 @@ Dangling references that will break:
 ## Rules
 - Find everything related to the removal request across ALL files — scan the filesystem, not just the data shown above.
 - Remove surgically — section by section, key by key.
-- Never delete an entire file. Remove only the relevant section.
+- Never delete an entire file unless it contains ONLY the thing being removed.
 - Never remove content unrelated to the request.
 - After every edit, the file MUST remain valid (JSON stays valid JSON, etc.)
 - If not found anywhere: say so and stop.
@@ -55,3 +79,4 @@ Dangling references that will break:
 Removed: ✅ [path] — [what was removed]
 Not found: ⏭ [path] — not referenced
 Dangling: ⚠️ [path] — still references [removed thing]
+Suggested: 📦 To uninstall plugin: /plugin uninstall [name]@[marketplace]
