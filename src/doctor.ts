@@ -124,6 +124,7 @@ export async function runDoctor(verbose = false, fix = false, testHooks = false)
   // --- Check 3: OS/MCP format mismatch ---
   if (state.mcpJson.content) {
     section("MCP servers")
+    const mcpWarningsBefore = counts.warnings + counts.critical
     const mcp = safeJsonParse(state.mcpJson.content)
     if (mcp && typeof mcp.mcpServers === "object" && mcp.mcpServers !== null) {
       const servers = mcp.mcpServers as Record<string, Record<string, unknown>>
@@ -192,6 +193,13 @@ export async function runDoctor(verbose = false, fix = false, testHooks = false)
             }
           }
         }
+
+        // Check if server has no env vars but uses npx (might fail on first run due to npm download)
+        if (!config.env && (cmd === "npx" || (cmd === "cmd" && (config.args as string[])?.includes("npx")))) {
+          if (verbose) {
+            statusLine("💡", name, c.dim("uses npx — will download package on first run (requires internet)"))
+          }
+        }
       }
 
       // Check for channel-type servers
@@ -214,6 +222,12 @@ export async function runDoctor(verbose = false, fix = false, testHooks = false)
       }
     } else if (mcp) {
       if (verbose) statusLine("⚠️ ", ".mcp.json", "no mcpServers key found")
+    }
+    if (counts.warnings + counts.critical > mcpWarningsBefore) {
+      console.log(`\n  ${c.dim("MCP self-correction:")}`)
+      console.log(`  • ${c.cyan("npx claude-setup doctor --fix")} — auto-fix OS format and -y flag`)
+      console.log(`  • Set missing env vars, then re-run ${c.cyan("npx claude-setup doctor")}`)
+      console.log(`  • Verify server packages: https://github.com/modelcontextprotocol/servers`)
     }
   } else if (verbose) {
     section("MCP servers")
@@ -414,12 +428,25 @@ export async function runDoctor(verbose = false, fix = false, testHooks = false)
       const template = readIfExists(".env.example") ?? readIfExists(".env.sample") ?? readIfExists(".env.template") ?? ""
       section("Env vars")
       for (const v of unique) {
-        if (template.includes(v)) {
-          statusLine("✅", `\${${v}}`, "found in env template")
+        const isActuallySet = process.env[v] !== undefined && process.env[v] !== ""
+        const isInTemplate = template.includes(v)
+        if (isActuallySet) {
+          statusLine("✅", `\${${v}}`, "set in environment")
           counts.healthy++
+        } else if (isInTemplate) {
+          statusLine("🔴", `\${${v}}`, c.red(
+            `NOT SET — MCP server will fail at runtime.\n` +
+            `      Documented in .env.example but not loaded into environment.\n` +
+            `      Fix: set ${v} in your shell or .env file, then restart Claude Code.`
+          ))
+          counts.critical++
         } else {
-          statusLine("⚠️ ", `\${${v}}`, c.yellow("used in .mcp.json but missing from .env.example"))
-          counts.warnings++
+          statusLine("🔴", `\${${v}}`, c.red(
+            `NOT SET — MCP server will fail at runtime.\n` +
+            `      Missing from both environment and .env.example.\n` +
+            `      Fix: add ${v} to .env.example and set its value in your shell or .env file.`
+          ))
+          counts.critical++
         }
       }
     }

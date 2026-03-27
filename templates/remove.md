@@ -47,8 +47,12 @@ Before removing anything, scan these locations directly:
 - Remove the entire matcher entry if removing all hooks for that matcher
 
 ### Skills
-- Delete the skill directory: `.claude/skills/<name>/` (entire directory including SKILL.md)
-- Or delete the flat skill file: `.claude/skills/<name>.md`
+- Delete the skill directory using the appropriate shell command:
+  - macOS/Linux: run `rm -rf .claude/skills/<name>/`
+  - Windows: run `rmdir /s /q ".claude\skills\<name>"`
+- Verify deletion succeeded: confirm `.claude/skills/<name>/` no longer exists on disk
+- Remove the skill reference from CLAUDE.md
+- Remove from SKILLS_LIST in CLAUDE.md if referenced there
 
 ### Plugins
 - Suggest: `/plugin uninstall <name>@<marketplace>`

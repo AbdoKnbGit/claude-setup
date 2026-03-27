@@ -4,7 +4,7 @@ import { collectProjectFiles } from "../collect.js"
 import { readState } from "../state.js"
 import { updateManifest } from "../manifest.js"
 import { buildAddCommand } from "../builder.js"
-import { estimateTokens, estimateCost } from "../tokens.js"
+import { estimateTokens, estimateCost, formatCost } from "../tokens.js"
 import { c, section } from "../output.js"
 
 function ensureDir(dir: string): void {
@@ -73,6 +73,6 @@ capabilities that need documentation, MCP servers, skills, and hooks together.
   console.log(`\n${c.green("✅")} Ready. Open Claude Code and run:\n   ${c.cyan("/stack-add")}`)
 
   section("Token cost")
-  console.log(`  ~${tokens.toLocaleString()} input tokens (${c.dim(`Opus $${cost.opus.toFixed(4)} | Sonnet $${cost.sonnet.toFixed(4)} | Haiku $${cost.haiku.toFixed(4)}`)})`)
+  console.log(`  ~${tokens.toLocaleString()} input tokens (${c.dim(`${formatCost(cost)}`)})`)
   console.log("")
 }

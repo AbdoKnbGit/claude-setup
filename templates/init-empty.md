@@ -3,22 +3,64 @@
 
 This is a new project with no source files yet.
 
-Before setting up anything, ask the developer these three questions in ONE message:
+## Step 1 — Idea discovery
 
-1. What are you building? (describe the product in one sentence — not the tech)
-2. Do you have a preferred language or runtime? (completely fine if not)
-3. Are there external services you know you'll use? (fine to say "not sure yet")
+Start a conversation with the developer. Ask ONE focused question to understand what they're building.
+Keep it short and conversational. Offer at most 3 answer choices where helpful.
 
-Wait for their reply. Then immediately set up the full Claude Code environment.
+**Ask this first:**
+
+> What are you building? (Pick the closest match or describe in a few words)
+> 1. A web app or SaaS product
+> 2. A CLI tool or developer utility
+> 3. Something else — tell me in one sentence
+
+Wait for their answer. Then ask ONE follow-up question if needed to clarify the core purpose.
+Ask a maximum of 3 questions total in this step. Stop after you understand the product.
 
 ---
 
-## After they reply
+## Step 2 — Tech stack
+
+Once you understand the idea, ask:
+
+> Do you already have a tech stack in mind?
+> - **Yes** → ask them to describe it briefly, then suggest complementary tools
+> - **No** → based on their idea, suggest the most appropriate stack:
+>   - Web app → Next.js/React + TypeScript (or Python/FastAPI if data-heavy)
+>   - CLI tool → Node.js/TypeScript or Go
+>   - API service → Node.js/Express or Python/FastAPI
+>   - Mobile → React Native or Flutter
+>   Present 2-3 options max and let them choose.
+
+Confirm their final stack choice before moving on.
+
+---
+
+## Step 3 — Services
+
+Based on the stack and idea, ask:
+
+> Which of these services will you need? (select any that apply)
+
+Suggest only services relevant to their specific idea:
+- **Database** — if they need persistent data (PostgreSQL, MongoDB, Redis)
+- **Auth** — if they need user accounts
+- **Payments** — if they're monetizing (Stripe)
+- **Storage** — if they handle files/media
+- **Email/notifications** — if they need to reach users
+- **External API** — if they named a specific third-party service
+
+Let them specify their own services, then suggest 1-2 additional ones that complement their stack.
+
+---
+
+## After collecting all answers
 
 Use exactly what they said. Do not invent requirements they did not mention.
 
 **CLAUDE.md**
-Write it for the product they described. Reference their exact words.
+Write it for the product they described. Reference their exact words and chosen stack.
 If they gave no language: write a language-agnostic CLAUDE.md about the product itself.
 
 **.mcp.json**

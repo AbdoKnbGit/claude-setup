@@ -4,7 +4,7 @@ import { readManifest } from "../manifest.js"
 import { readState } from "../state.js"
 import { detectOS } from "../os.js"
 import { readTimeline } from "../snapshot.js"
-import { computeCumulativeStats, formatCost } from "../tokens.js"
+import { computeCumulativeStats, formatCost, readRealTokenUsage, getProjectUsageSummary, readProjectSessions } from "../tokens.js"
 import { c, statusLine, section } from "../output.js"
 
 function safeJsonParse(content: string): Record<string, unknown> | null {
@@ -100,35 +100,73 @@ export async function runStatus(): Promise<void> {
   }
 
   // --- Feature I: Token usage stats ---
-  const runsWithTokens = manifest.runs.filter(r => r.estimatedTokens !== undefined)
-  if (runsWithTokens.length > 0) {
-    section("Token usage")
-    const stats = computeCumulativeStats(manifest.runs)
+  // Try JSONL transcripts first (ccusage-style, most accurate)
+  const projectSummary = getProjectUsageSummary(cwd)
+  if (projectSummary && projectSummary.totalTokens > 0) {
+    section("Token usage (real — from JSONL transcripts)")
+    console.log(`  Sessions tracked : ${projectSummary.sessions}`)
+    console.log(`  Total cost       : $${projectSummary.totalCost.toFixed(6)}`)
+    console.log(`  Input tokens     : ${projectSummary.inputTokens.toLocaleString()}`)
+    console.log(`  Output tokens    : ${projectSummary.outputTokens.toLocaleString()}`)
+    if (projectSummary.cacheCreateTokens > 0 || projectSummary.cacheReadTokens > 0) {
+      console.log(`  Cache write      : ${projectSummary.cacheCreateTokens.toLocaleString()}`)
+      console.log(`  Cache read       : ${projectSummary.cacheReadTokens.toLocaleString()}`)
+    }
+    console.log(`  Total tokens     : ${projectSummary.totalTokens.toLocaleString()}`)
 
-    console.log(`  Total tokens : ~${stats.totalTokens.toLocaleString()} across ${stats.runCount} run(s)`)
-    console.log(`  Total cost   : ${formatCost(stats.totalCost)}`)
-
-    // Average by command type
-    const avgEntries = Object.entries(stats.avgByCommand)
-    if (avgEntries.length > 0) {
-      console.log(`  Avg by type  :`)
-      for (const [cmd, avg] of avgEntries) {
-        console.log(`    ${cmd}: ~${avg.toLocaleString()} tokens/run`)
+    if (projectSummary.models.length > 0) {
+      console.log(``)
+      console.log(`  Per model:`)
+      for (const m of projectSummary.models.sort((a, b) => b.cost - a.cost)) {
+        const shortName = m.model.replace(/^claude-/, "").replace(/-\d{8}$/, "")
+        console.log(`    ${shortName.padEnd(14)} ${m.totalTokens.toLocaleString().padStart(12)} tokens  $${m.cost.toFixed(6)}`)
       }
     }
 
-    // Cost trend (last 3 vs previous 3)
-    if (runsWithTokens.length >= 6) {
-      const recent3 = runsWithTokens.slice(-3)
-      const prev3 = runsWithTokens.slice(-6, -3)
-      const recentAvg = recent3.reduce((s, r) => s + (r.estimatedTokens ?? 0), 0) / 3
-      const prevAvg = prev3.reduce((s, r) => s + (r.estimatedTokens ?? 0), 0) / 3
-      const change = ((recentAvg - prevAvg) / prevAvg) * 100
-      if (Math.abs(change) > 10) {
-        const trend = change > 0 ? c.yellow(`↑ +${change.toFixed(0)}%`) : c.green(`↓ ${change.toFixed(0)}%`)
-        console.log(`  Trend        : ${trend} (recent vs previous)`)
-      } else {
-        console.log(`  Trend        : ${c.green("→ stable")}`)
+    // Show last 5 sessions
+    const sessions = readProjectSessions(cwd)
+    if (sessions.length > 0) {
+      console.log(``)
+      console.log(`  Recent sessions:`)
+      for (const s of sessions.slice(0, 5)) {
+        const date = s.timestamp ? new Date(s.timestamp).toLocaleString() : "unknown"
+        const primaryModel = s.models.sort((a, b) => b.cost - a.cost)[0]?.model ?? "unknown"
+        const shortModel = primaryModel.replace(/^claude-/, "").replace(/-\d{8}$/, "")
+        console.log(`    ${c.dim(date)}  ${shortModel}  ${s.totalTokens.toLocaleString()} tokens  $${s.totalCost.toFixed(6)}`)
+      }
+    }
+  } else {
+    // Fallback: Stop hook data
+    const realUsage = readRealTokenUsage(cwd)
+    if (realUsage.length > 0) {
+      section("Token usage (real — from Stop hook)")
+      const last5 = realUsage.slice(-5).reverse()
+      let totalCost = 0
+      for (const r of realUsage) totalCost += r.cost
+
+      console.log(`  Sessions tracked : ${realUsage.length}`)
+      console.log(`  Total real cost  : $${totalCost.toFixed(6)}`)
+      console.log(``)
+      console.log(`  Recent sessions:`)
+      for (const r of last5) {
+        const date = new Date(r.timestamp).toLocaleString()
+        const tokens = r.inputTokens + r.outputTokens + r.cacheCreate + r.cacheRead
+        console.log(`  ${c.dim(date)}  ${r.model.split('-').slice(1, 3).join('-')}  ${tokens.toLocaleString()} tokens  $${r.cost.toFixed(6)}`)
+      }
+    } else {
+      // Fall back to estimates from manifest
+      const runsWithTokens = manifest.runs.filter(r => r.estimatedTokens !== undefined)
+      if (runsWithTokens.length > 0) {
+        section("Token usage (estimated — real data available after first Claude Code session)")
+        const stats = computeCumulativeStats(manifest.runs)
+        console.log(`  Total est. tokens: ~${stats.totalTokens.toLocaleString()} across ${stats.runCount} run(s)`)
+        const avgEntries = Object.entries(stats.avgByCommand)
+        if (avgEntries.length > 0) {
+          console.log(`  Avg by type  :`)
+          for (const [cmd, avg] of avgEntries) {
+            console.log(`    ${cmd}: ~${avg.toLocaleString()} tokens/run`)
+          }
+        }
       }
     }
   }

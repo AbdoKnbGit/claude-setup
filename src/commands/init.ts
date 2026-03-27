@@ -1,4 +1,4 @@
-import { writeFileSync, mkdirSync, existsSync } from "fs"
+import { writeFileSync, mkdirSync, existsSync, readFileSync } from "fs"
 import { join } from "path"
 import { collectProjectFiles, isEmptyProject } from "../collect.js"
 import { readState } from "../state.js"
@@ -9,13 +9,48 @@ import {
   buildOrchestratorCommand,
 } from "../builder.js"
 import { createSnapshot, collectFilesForSnapshot } from "../snapshot.js"
-import { estimateTokens, estimateCost } from "../tokens.js"
+import { estimateTokens, estimateCost, formatCost, getTokenHookScript, formatRealCostSummary } from "../tokens.js"
 import { c, section } from "../output.js"
 import { ensureConfig } from "../config.js"
 import { applyTemplate } from "./export.js"
 
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+}
+
+function installTokenHook(cwd: string = process.cwd()): void {
+  // Write the hook script
+  const hooksDir = join(cwd, ".claude", "hooks")
+  if (!existsSync(hooksDir)) mkdirSync(hooksDir, { recursive: true })
+  writeFileSync(join(hooksDir, "track-tokens.cjs"), getTokenHookScript(), "utf8")
+
+  // Merge Stop hook into settings.json
+  const settingsPath = join(cwd, ".claude", "settings.json")
+  let settings: Record<string, unknown> = {}
+  if (existsSync(settingsPath)) {
+    try { settings = JSON.parse(readFileSync(settingsPath, "utf8") ?? "{}") } catch {}
+  }
+
+  const hookEntry = {
+    hooks: [{ type: "command", command: "node \".claude/hooks/track-tokens.cjs\"" }]
+  }
+
+  // Merge into settings.hooks.Stop
+  if (!settings.hooks) settings.hooks = {}
+  const hooks = settings.hooks as Record<string, unknown[]>
+  if (!Array.isArray(hooks.Stop)) hooks.Stop = []
+
+  // Only add if not already present
+  const alreadyPresent = (hooks.Stop as Array<Record<string, unknown>>).some(e =>
+    Array.isArray(e.hooks) && (e.hooks as Array<Record<string, unknown>>).some(
+      (h: Record<string, unknown>) => typeof h.command === "string" && h.command.includes("track-tokens")
+    )
+  )
+  if (!alreadyPresent) {
+    hooks.Stop.push(hookEntry)
+    if (!existsSync(join(cwd, ".claude"))) mkdirSync(join(cwd, ".claude"), { recursive: true })
+    writeFileSync(settingsPath, JSON.stringify(settings, null, 2), "utf8")
+  }
 }
 
 export async function runInit(opts: { dryRun?: boolean; template?: string } = {}): Promise<void> {
@@ -52,13 +87,14 @@ export async function runInit(opts: { dryRun?: boolean; template?: string } = {}
       if (content.length > 500) console.log(c.dim(`\n... +${content.length - 500} chars`))
 
       section("Token cost estimate")
-      console.log(`  ~${tokens.toLocaleString()} input tokens (Opus $${cost.opus.toFixed(4)} | Sonnet $${cost.sonnet.toFixed(4)} | Haiku $${cost.haiku.toFixed(4)})`)
+      console.log(`  ~${tokens.toLocaleString()} input tokens (${formatCost(cost)})`)
       return
     }
 
     ensureDir(".claude/commands")
     writeFileSync(".claude/commands/stack-init.md", content, "utf8")
     await updateManifest("init", collected, { estimatedTokens: tokens, estimatedCost: cost })
+    installTokenHook()
 
     // Feature A: Create initial snapshot node
     const cwd = process.cwd()
@@ -76,7 +112,14 @@ Claude Code will ask 3 questions, then set up your environment.
     `)
 
     section("Token cost")
-    console.log(`  ~${tokens.toLocaleString()} input tokens (${c.dim(`Opus $${cost.opus.toFixed(4)} | Sonnet $${cost.sonnet.toFixed(4)} | Haiku $${cost.haiku.toFixed(4)}`)})`)
+    const realSummary1 = formatRealCostSummary(cwd)
+    if (realSummary1) {
+      console.log(realSummary1)
+      console.log(`  ${c.dim(`This command estimate: ~${tokens.toLocaleString()} input tokens (${formatCost(cost)})`)}`)
+    } else {
+      console.log(`  ~${tokens.toLocaleString()} input tokens (${c.dim(`${formatCost(cost)}`)})`)
+      console.log(`  ${c.dim("Estimates only — real costs tracked after first Claude Code session")}`)
+    }
     console.log("")
     return
   }
@@ -100,7 +143,7 @@ Claude Code will ask 3 questions, then set up your environment.
     console.log(`\n${c.dim(`Total: ~${tokens.toLocaleString()} tokens across ${steps.length} files`)}`)
 
     section("Token cost estimate")
-    console.log(`  ~${tokens.toLocaleString()} input tokens (Opus $${cost.opus.toFixed(4)} | Sonnet $${cost.sonnet.toFixed(4)} | Haiku $${cost.haiku.toFixed(4)})`)
+    console.log(`  ~${tokens.toLocaleString()} input tokens (${formatCost(cost)})`)
     return
   }
 
@@ -110,6 +153,7 @@ Claude Code will ask 3 questions, then set up your environment.
   }
   writeFileSync(".claude/commands/stack-init.md", orchestrator, "utf8")
   await updateManifest("init", collected, { estimatedTokens: tokens, estimatedCost: cost })
+  installTokenHook()
 
   // Feature A: Create initial snapshot node
   const cwd = process.cwd()
@@ -127,6 +171,13 @@ Runs ${steps.length - 1} atomic steps. If one fails, re-run only that step.
   `)
 
   section("Token cost")
-  console.log(`  ~${tokens.toLocaleString()} input tokens (${c.dim(`Opus $${cost.opus.toFixed(4)} | Sonnet $${cost.sonnet.toFixed(4)} | Haiku $${cost.haiku.toFixed(4)}`)})`)
+  const realSummary2 = formatRealCostSummary(cwd)
+  if (realSummary2) {
+    console.log(realSummary2)
+    console.log(`  ${c.dim(`This command estimate: ~${tokens.toLocaleString()} input tokens (${formatCost(cost)})`)}`)
+  } else {
+    console.log(`  ~${tokens.toLocaleString()} input tokens (${c.dim(`${formatCost(cost)}`)})`)
+    console.log(`  ${c.dim("Estimates only — real costs tracked after first Claude Code session")}`)
+  }
   console.log("")
 }

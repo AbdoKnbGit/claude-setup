@@ -4,7 +4,7 @@ import { collectProjectFiles } from "../collect.js"
 import { readState } from "../state.js"
 import { updateManifest } from "../manifest.js"
 import { buildRemoveCommand } from "../builder.js"
-import { estimateTokens, estimateCost } from "../tokens.js"
+import { estimateTokens, estimateCost, formatCost } from "../tokens.js"
 import { c, section } from "../output.js"
 
 function ensureDir(dir: string): void {
@@ -50,6 +50,6 @@ export async function runRemove(): Promise<void> {
   console.log(`\n${c.green("✅")} Ready. Open Claude Code and run:\n   ${c.cyan("/stack-remove")}`)
 
   section("Token cost")
-  console.log(`  ~${tokens.toLocaleString()} input tokens (${c.dim(`Opus $${cost.opus.toFixed(4)} | Sonnet $${cost.sonnet.toFixed(4)} | Haiku $${cost.haiku.toFixed(4)}`)})`)
+  console.log(`  ~${tokens.toLocaleString()} input tokens (${c.dim(`${formatCost(cost)}`)})`)
   console.log("")
 }

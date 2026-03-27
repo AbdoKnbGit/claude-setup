@@ -1,6 +1,6 @@
 {
   "name": "claude-setup",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "description": "Setup layer for Claude Code — reads your project, writes command files, Claude Code does the rest",
   "type": "module",
   "bin": {

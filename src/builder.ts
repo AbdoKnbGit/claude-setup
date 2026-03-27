@@ -301,6 +301,11 @@ export function buildAtomicSteps(collected: CollectedFiles, state: ExistingState
         `\`⚠️ UNKNOWN PACKAGE — [service] MCP server not added: package name unverified. Find it at https://github.com/modelcontextprotocol/servers\`\n` +
         `Do not add a placeholder. Do not guess.\n\n` +
         `### OS-correct format (detected: ${os})\n` +
+        `**Preferred: use CLI to add (writes to .mcp.json automatically):**\n` +
+        (os === "Windows"
+          ? `\`\`\`\nclaude mcp add --scope project --transport stdio <name> -- cmd /c npx -y <package>\n\`\`\`\n`
+          : `\`\`\`\nclaude mcp add --scope project --transport stdio <name> -- npx -y <package>\n\`\`\`\n`) +
+        `**Or write .mcp.json directly:**\n` +
         (os === "Windows"
           ? `Use: \`{ "command": "cmd", "args": ["/c", "npx", "-y", "<package>"] }\`\n`
           : `Use: \`{ "command": "npx", "args": ["-y", "<package>"] }\`\n`) +
@@ -331,6 +336,13 @@ export function buildAtomicSteps(collected: CollectedFiles, state: ExistingState
           ? `\`{ "command": "cmd", "args": ["/c", "bun", "run", "\${CLAUDE_PLUGIN_ROOT}/servers/telegram"], "env": { "TELEGRAM_BOT_TOKEN": "\${TELEGRAM_BOT_TOKEN}" } }\`\n`
           : `\`{ "command": "bun", "args": ["run", "\${CLAUDE_PLUGIN_ROOT}/servers/telegram"], "env": { "TELEGRAM_BOT_TOKEN": "\${TELEGRAM_BOT_TOKEN}" } }\`\n`) +
         `After adding, flag: \`⚠️ CHANNEL ACTIVATION REQUIRED — launch with: claude --channels plugin:telegram@claude-plugins-official\`\n\n` +
+        `### Self-correction fallback\n` +
+        `If MCP configuration fails or produces warnings:\n` +
+        `1. Read the official MCP documentation: https://modelcontextprotocol.io/introduction\n` +
+        `2. Verify the package name against the MCP servers registry: https://github.com/modelcontextprotocol/servers\n` +
+        `3. Check the server's README for required env vars and correct args format\n` +
+        `4. Re-run \`npx claude-setup doctor\` to validate the fix\n` +
+        `Do NOT leave broken MCP configuration in place — either fix it or remove the entry.\n\n` +
         `### Output\n` +
         `Created/Updated: ✅ .mcp.json — [what server and evidence source]\n` +
         `Skipped: ⏭ .mcp.json — checked [files], found [nothing], no action\n`,

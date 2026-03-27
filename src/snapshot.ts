@@ -31,6 +31,7 @@ export interface SnapshotNode {
 
 export interface SnapshotTimeline {
   nodes: SnapshotNode[]
+  restoredTo?: string
 }
 
 export interface SnapshotData {
@@ -124,21 +125,53 @@ export function createSnapshot(
 }
 
 /**
+ * Build the cumulative file state at a given node by accumulating
+ * all files from node 0 through the target node. Later nodes override
+ * earlier ones (last-write-wins), giving the full state at that point.
+ */
+export function buildCumulativeState(
+  cwd: string,
+  nodeId: string,
+  timeline: SnapshotTimeline
+): Record<string, string> | null {
+  const targetIndex = timeline.nodes.findIndex(n => n.id === nodeId)
+  if (targetIndex < 0) return null
+
+  const cumulative: Record<string, string> = {}
+  for (let i = 0; i <= targetIndex; i++) {
+    const data = readNodeData(cwd, timeline.nodes[i].id)
+    if (data) {
+      for (const [filePath, content] of Object.entries(data.files)) {
+        cumulative[filePath] = content
+      }
+    }
+  }
+  return cumulative
+}
+
+/**
  * Restore files from a snapshot node.
- * Writes stored file contents back to disk.
+ * Accumulates all file states from node 0 through the target node,
+ * then writes them to disk. This reconstructs the full project state
+ * at that point in time, not just the delta.
  * Does NOT delete other nodes — all nodes are preserved (like git).
  */
 export function restoreSnapshot(
   cwd: string,
-  nodeId: string
-): { restored: string[]; failed: string[] } {
-  const data = readNodeData(cwd, nodeId)
-  if (!data) return { restored: [], failed: [nodeId] }
+  nodeId: string,
+  timeline?: SnapshotTimeline
+): { restored: string[]; failed: string[]; stale: string[] } {
+  // If no timeline provided, read it
+  const tl = timeline ?? readTimeline(cwd)
+
+  // Build cumulative state up to this node
+  const cumulativeFiles = buildCumulativeState(cwd, nodeId, tl)
+  if (!cumulativeFiles) return { restored: [], failed: [nodeId], stale: [] }
 
   const restored: string[] = []
   const failed: string[] = []
 
-  for (const [filePath, content] of Object.entries(data.files)) {
+  for (const [filePath, content] of Object.entries(cumulativeFiles)) {
     const fullPath = join(cwd, filePath)
     try {
       const dir = dirname(fullPath)
@@ -150,7 +183,39 @@ export function restoreSnapshot(
     }
   }
 
-  return { restored, failed }
+  // Detect files that exist now but weren't in the cumulative state
+  // These are files added in later snapshots that may be stale
+  const stale: string[] = []
+  const targetIndex = tl.nodes.findIndex(n => n.id === nodeId)
+  if (targetIndex >= 0) {
+    const laterNodes = tl.nodes.slice(targetIndex + 1)
+    const allLaterFiles = new Set<string>()
+    for (const node of laterNodes) {
+      const nodeData = readNodeData(cwd, node.id)
+      if (nodeData) {
+        for (const fp of Object.keys(nodeData.files)) {
+          allLaterFiles.add(fp)
+        }
+      }
+    }
+    // Files in later snapshots but NOT in cumulative state at target
+    for (const filePath of allLaterFiles) {
+      if (!cumulativeFiles[filePath] && existsSync(join(cwd, filePath))) {
+        stale.push(filePath)
+      }
+    }
+  }
+
+  return { restored, failed, stale }
+}
+
+/**
+ * Record the last restored node in the timeline (for display purposes).
+ */
+export function updateRestoredNode(cwd: string, nodeId: string): void {
+  const timeline = readTimeline(cwd)
+  timeline.restoredTo = nodeId
+  writeTimeline(cwd, timeline)
 }
 
 /**

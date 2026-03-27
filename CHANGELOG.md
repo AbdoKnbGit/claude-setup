@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.1.5 — Token accuracy: subagents, OS-universal paths (2026-03-27)
+
+### Bug Fixes
+
+**Subagent token usage was not counted.**
+Agent tool calls (subagents) run in separate API sessions. Their JSONL files are stored in `<session-id>/subagents/*.jsonl`, not in the main session file. The token reader was only scanning the main file and missing all subagent usage. This could silently undercount costs by a large margin depending on how many Agent calls a session used. Both the JSONL reader and the Stop hook script now include subagent files.
+
+**Project path matching failed on all operating systems.**
+The JSONL reader was trying to decode Claude Code's encoded directory names back to paths (e.g. `C--Users-ok-Desktop-myapp` → path). This decoding is lossy: folder names with hyphens (like `Claude-code-documentation`) were decoded as extra path segments, so the directory was never found. The fix encodes the CWD using Claude Code's exact scheme and matches by direct comparison, case-insensitive.
+
+**Synthetic model entries appeared in per-model breakdown.**
+Claude Code writes `<synthetic>` entries to JSONL with all-zero token counts. These were being passed through the parser and shown in the per-model display as a zero-cost row. They are now filtered out before aggregation.
+
+**Stop hook did not cover all Claude data directories.**
+Data directory detection only checked `~/.config/claude` and `~/.claude`. Added `~/Library/Application Support/claude` (macOS), `%APPDATA%/claude` (Windows), and `CLAUDE_CONFIG_DIR` env var override to cover every platform default.
+
+---
+
 ## v1.1.4 — Snapshots, Templates, Token Tracking, Doctor Auto-Fix (2026-03-26)
 
 Six new features that make claude-setup a complete project management layer.

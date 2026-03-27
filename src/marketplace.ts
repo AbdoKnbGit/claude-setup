@@ -10,6 +10,23 @@ export const MARKETPLACE_REPO = "jeremylongshore/claude-code-plugins-plus-skills
 export const MARKETPLACE_CATALOG_URL =
   `https://raw.githubusercontent.com/${MARKETPLACE_REPO}/main/.claude-plugin/marketplace.extended.json`
 
+/** Additional marketplace sources for broader coverage */
+export const ADDITIONAL_MARKETPLACE_SOURCES = [
+  {
+    name: "claude-plugins-official",
+    description: "Official Anthropic plugins (GitHub, Slack, Linear, Notion, etc.)",
+    installPrefix: "claude-plugins-official",
+    note: "No marketplace add needed — available by default"
+  },
+  {
+    name: "awesome-claude-code",
+    description: "Community collection of Claude Code skills and workflows",
+    catalogUrl: "https://raw.githubusercontent.com/hesreallyhim/awesome-claude-code/main/catalog.json",
+    installPrefix: null,
+    note: "Browse and manually install skills"
+  }
+] as const
+
 /** The 20 skill categories in the marketplace */
 export const SKILL_CATEGORIES = [
   "01-code-quality", "02-testing", "03-security",
@@ -105,81 +122,118 @@ export function classifyRequest(input: string): { categories: string[]; saasMatc
   return { categories: [...categories], saasMatches }
 }
 
-/** Generate marketplace search instructions for the add template */
+/** Generate fully-automated marketplace search and install instructions */
 export function buildMarketplaceInstructions(input: string): string {
   const { categories, saasMatches } = classifyRequest(input)
+  const categoryFilter = categories[0] ?? ""
 
   const lines: string[] = []
-  lines.push(`## Marketplace intelligence`)
+  lines.push(`## Marketplace — fully automated install`)
   lines.push(``)
-  lines.push(`A plugin marketplace is available with 340+ plugins and 1,367+ agent skills.`)
+  lines.push(`A plugin marketplace has 416 community skills + 13 official Anthropic plugins.`)
+  lines.push(`Follow the steps below IN ORDER. Do not stop until a skill is installed.`)
   lines.push(``)
 
   if (categories.length > 0 || saasMatches.length > 0) {
-    lines.push(`### Matched categories for "${input}":`)
-    for (const cat of categories) {
-      lines.push(`- ${cat}`)
-    }
-    for (const saas of saasMatches) {
-      lines.push(`- SaaS pack: ${saas} (~30 skills)`)
-    }
+    lines.push(`### Matched for "${input}":`)
+    for (const cat of categories) lines.push(`- category: ${cat}`)
+    for (const saas of saasMatches) lines.push(`- SaaS: ${saas}`)
     lines.push(``)
   }
 
-  lines.push(`### How to search and install`)
+  lines.push(`---`)
   lines.push(``)
-  lines.push(`**Step 1 — Add the marketplace** (if not already added):`)
-  lines.push("```")
-  lines.push(`/plugin marketplace add ${MARKETPLACE_REPO}`)
-  lines.push("```")
+  lines.push(`### STEP 1 — Try official Anthropic plugins first (no schema errors, always works)`)
   lines.push(``)
-  lines.push(`**Step 2 — Search for matching plugins:**`)
-  lines.push("```")
-  lines.push(`# Fetch the catalog:`)
-  lines.push(`curl -s ${MARKETPLACE_CATALOG_URL} | jq '[.[] | select(.category | test("${categories[0] ?? ""}"; "i"))]'`)
-  lines.push("```")
+  lines.push(`\`\`\``)
+  lines.push(`/plugin marketplace add anthropics/claude-code`)
+  lines.push(`\`\`\``)
+  lines.push(`Then search installed plugins for a match. If found, install:`)
+  lines.push(`\`\`\``)
+  lines.push(`/plugin install <name>@claude-code-plugins`)
+  lines.push(`\`\`\``)
+  lines.push(`Official plugins: agent-sdk-dev, claude-opus-4-5-migration, code-review, commit-commands,`)
+  lines.push(`explanatory-output-style, feature-dev, frontend-design, hookify, learning-output-style,`)
+  lines.push(`plugin-dev, pr-review-toolkit, ralph-wiggum, security-guidance`)
   lines.push(``)
-  lines.push(`**Step 3 — Install matching plugins:**`)
-  lines.push("```")
-  lines.push(`/plugin install <name>@claude-code-plugins-plus`)
-  lines.push("```")
+  lines.push(`---`)
   lines.push(``)
-  lines.push(`### Before suggesting any plugin, validate:`)
-  lines.push(`- \`mcp_required\` field — if true, flag the MCP dependency`)
-  lines.push(`- \`free\` field — if false, flag that it needs a paid API`)
-  lines.push(`- Never suggest a plugin without checking the catalog first`)
-  lines.push(`- Never hardcode a plugin name from memory — validate against the fetched catalog`)
+  lines.push(`### STEP 2 — Search community catalog (jeremylongshore — 416 plugins)`)
   lines.push(``)
-  lines.push(`### Suggestion format:`)
-  lines.push("```")
-  lines.push(`📦 Suggested from [claude-code-plugins-plus-skills]`)
+  lines.push(`NOTE: /plugin marketplace add FAILS for this repo (one entry has broken schema).`)
+  lines.push(`Use the DIRECT FETCH approach below instead — no marketplace add needed.`)
   lines.push(``)
-  lines.push(`  [plugin/skill name]`)
-  lines.push(`  Category  : [category]`)
-  lines.push(`  What it does: [one sentence from catalog description]`)
-  lines.push(`  Requires  : [nothing / MCP: name / Paid API: service name]`)
+  lines.push(`**2a. Fetch catalog and find matching plugin:**`)
+  lines.push(`\`\`\`bash`)
+  lines.push(`curl -s "${MARKETPLACE_CATALOG_URL}" \\`)
+  lines.push(`  | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));const q='${categoryFilter}';const r=d.plugins.filter(p=>(!q||p.category.includes(q))&&p.name&&p.source).slice(0,5).map(p=>({name:p.name,source:p.source,desc:p.description}));console.log(JSON.stringify(r,null,2));"`)
+  lines.push(`\`\`\``)
   lines.push(``)
-  lines.push(`  Install:`)
-  lines.push(`    /plugin marketplace add ${MARKETPLACE_REPO}`)
-  lines.push(`    /plugin install [name]@claude-code-plugins-plus`)
-  lines.push("```")
+  lines.push(`**2b. Pick the best match — get its source path (e.g. \`./plugins/productivity/my-skill\`)**`)
   lines.push(``)
-
-  // Official Anthropic marketplace plugins (always available)
-  lines.push(`### Official Anthropic plugins (always available, no marketplace add needed):`)
-  lines.push(`These are installed via \`/plugin install <name>@claude-plugins-official\`:`)
-  lines.push(`- **github** — GitHub integration (PRs, issues, repos)`)
-  lines.push(`- **gitlab** — GitLab integration`)
-  lines.push(`- **slack** — Slack messaging`)
-  lines.push(`- **linear** — Linear project management`)
-  lines.push(`- **notion** — Notion workspace`)
-  lines.push(`- **sentry** — Error monitoring`)
-  lines.push(`- **figma** — Design files`)
-  lines.push(`- **vercel** — Deployment`)
-  lines.push(`- **firebase** — Firebase services`)
-  lines.push(`- **supabase** — Supabase backend`)
-  lines.push(`- **atlassian** — Jira/Confluence`)
-  lines.push(`- **asana** — Project management`)
+  lines.push(`**2c. List the skills inside that plugin:**`)
+  lines.push(`\`\`\`bash`)
+  lines.push(`# Replace PLUGIN_SOURCE_PATH with value from step 2b (e.g. plugins/productivity/my-skill)`)
+  lines.push(`PLUGIN_SOURCE_PATH="plugins/productivity/my-skill"`)
+  lines.push(`curl -s "https://api.github.com/repos/${MARKETPLACE_REPO}/contents/\${PLUGIN_SOURCE_PATH}/skills" \\`)
+  lines.push(`  | node -e "const a=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(a.map(x=>x.name).join('\\n'));"`)
+  lines.push(`\`\`\``)
+  lines.push(``)
+  lines.push(`**2d. For each skill listed, download and install it:**`)
+  lines.push(`\`\`\`bash`)
+  lines.push(`# Replace PLUGIN_SOURCE_PATH and SKILL_NAME with actual values`)
+  lines.push(`PLUGIN_SOURCE_PATH="plugins/productivity/my-skill"`)
+  lines.push(`SKILL_NAME="skill-directory-name"`)
+  lines.push(`mkdir -p ".claude/skills/\${SKILL_NAME}"`)
+  lines.push(`curl -s "https://raw.githubusercontent.com/${MARKETPLACE_REPO}/main/\${PLUGIN_SOURCE_PATH}/skills/\${SKILL_NAME}/SKILL.md" \\`)
+  lines.push(`  -o ".claude/skills/\${SKILL_NAME}/SKILL.md"`)
+  lines.push(`echo "Installed: .claude/skills/\${SKILL_NAME}/SKILL.md"`)
+  lines.push(`\`\`\``)
+  lines.push(``)
+  lines.push(`**On Windows, replace curl with:**`)
+  lines.push(`\`\`\`powershell`)
+  lines.push(`$url = "https://raw.githubusercontent.com/${MARKETPLACE_REPO}/main/$PLUGIN_SOURCE_PATH/skills/$SKILL_NAME/SKILL.md"`)
+  lines.push(`New-Item -ItemType Directory -Force ".claude/skills/$SKILL_NAME" | Out-Null`)
+  lines.push(`Invoke-WebRequest $url -OutFile ".claude/skills/$SKILL_NAME/SKILL.md"`)
+  lines.push(`\`\`\``)
+  lines.push(``)
+  lines.push(`---`)
+  lines.push(``)
+  lines.push(`### STEP 3 — Search additional sources`)
+  lines.push(``)
+  for (const source of ADDITIONAL_MARKETPLACE_SOURCES) {
+    lines.push(`**${source.name}** — ${source.description}`)
+    if ("catalogUrl" in source && source.catalogUrl) {
+      lines.push(`Catalog: ${source.catalogUrl}`)
+    }
+    if (source.note) {
+      lines.push(`Note: ${source.note}`)
+    }
+    lines.push(``)
+  }
+  lines.push(`---`)
+  lines.push(``)
+  lines.push(`### STEP 4 — If no match found in any source, create a custom skill`)
+  lines.push(``)
+  lines.push(`\`\`\`bash`)
+  lines.push(`mkdir -p ".claude/skills/${input.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}"`)
+  lines.push(`\`\`\``)
+  lines.push(`Then create SKILL.md with:`)
+  lines.push(`\`\`\`yaml`)
+  lines.push(`---`)
+  lines.push(`name: ${input.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`)
+  lines.push(`description: ${input}`)
+  lines.push(`---`)
+  lines.push(``)
+  lines.push(`[Skill instructions here]`)
+  lines.push(`\`\`\``)
+  lines.push(``)
+  lines.push(`---`)
+  lines.push(``)
+  lines.push(`### Install result format`)
+  lines.push(`After installing, confirm:`)
+  lines.push(`✅ Installed: .claude/skills/<name>/SKILL.md — [one line: what it does]`)
+  lines.push(`⏭ No match: searched [categories], created custom skill instead`)
   lines.push(``)
 
   return lines.join("\n")
