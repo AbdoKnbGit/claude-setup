@@ -242,8 +242,7 @@ export function buildBootstrapSync(): string {
 
 ## Your job
 
-For EACH changed file: does this change have any implication for the Claude Code setup?
-Update ONLY what the change demands. Do NOT rewrite files — surgical edits only.
+For EACH changed file, update the Claude Code setup. New source files (routes, services, etc.) MUST be reflected in CLAUDE.md. Config changes may require .mcp.json or settings.json updates. Surgical edits only.
 `
 }
 

@@ -4,8 +4,8 @@ import { collectProjectFiles } from "../collect.js"
 import { readState } from "../state.js"
 import { updateManifest } from "../manifest.js"
 import { buildRemoveCommand } from "../builder.js"
-import { estimateTokens, estimateCost, formatCost } from "../tokens.js"
-import { c, section } from "../output.js"
+import { estimateTokens, estimateCost } from "../tokens.js"
+import { c } from "../output.js"
 
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
@@ -21,8 +21,8 @@ async function promptFreeText(question: string): Promise<string> {
   })
 }
 
-export async function runRemove(): Promise<void> {
-  const userInput = await promptFreeText(
+export async function runRemove(opts: { input?: string } = {}): Promise<void> {
+  const userInput = opts.input ?? await promptFreeText(
     "What do you want to remove from your Claude Code setup?"
   )
 
@@ -35,7 +35,6 @@ export async function runRemove(): Promise<void> {
   const collected = await collectProjectFiles(process.cwd(), "configOnly")
   const content = buildRemoveCommand(userInput, state)
 
-  // Token tracking
   const tokens = estimateTokens(content)
   const cost = estimateCost(tokens)
 
@@ -47,9 +46,5 @@ export async function runRemove(): Promise<void> {
     estimatedCost: cost,
   })
 
-  console.log(`\n${c.green("✅")} Ready. Open Claude Code and run:\n   ${c.cyan("/stack-remove")}`)
-
-  section("Token cost")
-  console.log(`  ~${tokens.toLocaleString()} input tokens (${c.dim(`${formatCost(cost)}`)})`)
-  console.log("")
+  console.log(`\n${c.green("✅")} Ready. Open Claude Code and run:\n   ${c.cyan("/stack-remove")}\n`)
 }

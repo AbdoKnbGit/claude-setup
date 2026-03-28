@@ -102,7 +102,7 @@ async function promptSelectSnapshot(
   })
 }
 
-export async function runRestore(): Promise<void> {
+export async function runRestore(opts: { list?: boolean; id?: string } = {}): Promise<void> {
   const cwd = process.cwd()
   const timeline = readTimeline(cwd)
 
@@ -111,14 +111,51 @@ export async function runRestore(): Promise<void> {
     return
   }
 
-  // Display timeline
-  section("Snapshot timeline")
-  console.log(`  ${c.dim("All snapshots are always preserved — you can go back or forward freely.")}\n`)
-
   const restoredIdx = timeline.restoredTo
     ? timeline.nodes.findIndex(n => n.id === timeline.restoredTo)
     : timeline.nodes.length - 1
   const latestIdx = timeline.nodes.length - 1
+
+  // --list: just print timeline and exit (for use by Claude Code slash commands)
+  if (opts.list) {
+    for (let i = 0; i < timeline.nodes.length; i++) {
+      const node = timeline.nodes[i]
+      const date = new Date(node.timestamp).toLocaleString()
+      const isLatest = i === latestIdx
+      const isHere = i === restoredIdx && timeline.restoredTo
+      const marker = (isHere && !isLatest) ? " ← current"
+        : (isLatest && !timeline.restoredTo) ? " ← current"
+        : ""
+      const inputStr = node.input ? ` "${node.input}"` : ""
+      console.log(`${node.id}  ${node.command}${inputStr}  ${date}  ${node.summary}${marker}`)
+    }
+    return
+  }
+
+  // --id: restore directly to a specific snapshot (for use by Claude Code slash commands)
+  if (opts.id) {
+    const node = timeline.nodes.find(n => n.id === opts.id)
+    if (!node) {
+      console.log(`${c.red("🔴")} Snapshot "${opts.id}" not found.`)
+      return
+    }
+    console.log(`Restoring to snapshot ${c.cyan(node.id)}...`)
+    const result = restoreSnapshot(cwd, opts.id, timeline)
+    updateRestoredNode(cwd, opts.id)
+    const parts: string[] = []
+    if (result.restored.length) parts.push(`${result.restored.length} restored`)
+    if (result.deleted.length) parts.push(`${result.deleted.length} removed`)
+    if (parts.length) {
+      console.log(`${c.green("✅")} ${parts.join(", ")} → project at snapshot ${c.cyan(node.id)}.`)
+    } else {
+      console.log(`${c.yellow("⚠️")} Snapshot captured 0 files — nothing to restore.`)
+    }
+    return
+  }
+
+  // Interactive mode — display timeline
+  section("Snapshot timeline")
+  console.log(`  ${c.dim("All snapshots are always preserved — you can go back or forward freely.")}\n`)
 
   for (let i = 0; i < timeline.nodes.length; i++) {
     const node = timeline.nodes[i]

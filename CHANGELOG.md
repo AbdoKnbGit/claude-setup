@@ -1,5 +1,37 @@
 # Changelog
 
+## v1.1.7 — 2026-03-28
+
+### Sync: true checkpoint system
+- Rewrote sync diff engine — single authoritative full-project scan replaces the old 3-layer overlap (computeDiff + claudeInternal + fullScan) that caused duplicate entries and missed files
+- Sync now compares **every file on disk** against the last snapshot, not just a sampled subset — new routes, services, configs, everything gets caught
+- After restore, sync correctly compares against the **restored-to snapshot**, not the latest node (was silently comparing against the wrong baseline)
+- Eliminated double full-project scan — single scan reused for both diff and snapshot creation
+- No longer creates empty snapshot nodes when nothing changed — timeline stays clean
+
+### Snapshot: restoredTo auto-clear
+- `createSnapshot` now clears the `restoredTo` marker automatically — after any new snapshot (init/sync), user is at latest, so next sync compares against the right baseline
+
+### UX: one command for everything
+- `npx claude-setup` (no subcommand) now shows an interactive numbered menu with all 9 commands — pick a number and go
+- Init now installs **bootstrap slash commands** for all operations: `/stack-add`, `/stack-status`, `/stack-doctor`, `/stack-restore`, `/stack-remove` — all usable from within Claude Code without leaving the session
+- `add` and `remove` accept CLI arguments: `npx claude-setup add "Stripe skills"` skips the interactive prompt (enables slash command automation)
+- `restore` gained `--list` (print timeline) and `--id <id>` (direct restore) flags for non-interactive use
+
+### Marketplace: curl fix
+- Fixed `!q` in marketplace curl command — bash history expansion produced `\!q` → JavaScript SyntaxError. Changed to `q===""`
+- Changed `readFileSync('/dev/stdin')` to `readFileSync(0)` for Windows compatibility
+- Bumped marketplace results from 5 to 10
+- Added "skip to next step if curl fails" fallback instruction
+
+### Sync template: act on source changes
+- Updated sync instructions so Claude Code updates CLAUDE.md when source files are added/modified, not just config files — no more "just source code, skipping"
+
+### Token cost display
+- Removed token cost section from init, add, sync, and remove output (kept in --dry-run only)
+
+---
+
 ## v1.1.6 — 2026-03-28
 
 ### Restore: true time-machine

@@ -120,6 +120,7 @@ export function createSnapshot(
   }
 
   timeline.nodes.push(node)
+  delete timeline.restoredTo  // User is at latest — clear any restore marker
   writeTimeline(cwd, timeline)
   writeNodeData(cwd, nodeId, data)
 

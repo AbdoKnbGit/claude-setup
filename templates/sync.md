@@ -38,16 +38,20 @@ Skills: {{SKILLS_LIST}} | Commands: {{COMMANDS_LIST}} | Workflows: {{WORKFLOWS_L
 
 ## Your job
 
-For EACH changed file: does this change have any implication for the Claude Code setup?
+For EACH changed file, update the Claude Code setup:
 
-Reason about the signal:
+**Source files added/removed/modified — ALWAYS update CLAUDE.md:**
+- New source directories or modules → add to key dirs section
+- New routes, services, controllers → document the new endpoints/patterns
+- New dependencies or frameworks → update runtime section
+- Renamed or restructured files → update stale paths
+- CLAUDE.md must reflect the CURRENT project structure, not just config files
+
+**Config and infrastructure changes:**
 - New dependency → new MCP server needed? New hook justified?
 - New docker-compose service → new MCP entry? Env vars changed?
-- Source file added/removed → CLAUDE.md paths stale? Skill still applies?
 - Config deleted → remove its MCP/hook reference if it was the only evidence?
 
-Update ONLY what the change demands.
-Do NOT update things that did not change.
 Do NOT rewrite files — surgical edits only.
 If unsure about a change's implication: flag it, don't guess.
 

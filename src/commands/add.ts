@@ -4,8 +4,8 @@ import { collectProjectFiles } from "../collect.js"
 import { readState } from "../state.js"
 import { updateManifest } from "../manifest.js"
 import { buildAddCommand } from "../builder.js"
-import { estimateTokens, estimateCost, formatCost } from "../tokens.js"
-import { c, section } from "../output.js"
+import { estimateTokens, estimateCost } from "../tokens.js"
+import { c } from "../output.js"
 
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
@@ -21,9 +21,6 @@ async function promptFreeText(question: string): Promise<string> {
   })
 }
 
-// Conservative — only redirect when unambiguously single-file
-// False negatives (multi-step for single-file request) are fine
-// False positives (redirecting a genuinely multi-file request) are bad
 function isSingleFileOperation(input: string): boolean {
   return (
     /to \.mcp\.json\s*$/i.test(input) ||
@@ -32,8 +29,8 @@ function isSingleFileOperation(input: string): boolean {
   )
 }
 
-export async function runAdd(): Promise<void> {
-  const userInput = await promptFreeText(
+export async function runAdd(opts: { input?: string } = {}): Promise<void> {
+  const userInput = opts.input ?? await promptFreeText(
     "What do you want to add to your Claude Code setup?"
   )
 
@@ -54,11 +51,9 @@ capabilities that need documentation, MCP servers, skills, and hooks together.
   }
 
   const state = await readState()
-  // add only needs config files — source files are irrelevant and waste tokens
   const collected = await collectProjectFiles(process.cwd(), "configOnly")
   const content = buildAddCommand(userInput, collected, state)
 
-  // Token tracking
   const tokens = estimateTokens(content)
   const cost = estimateCost(tokens)
 
@@ -70,9 +65,5 @@ capabilities that need documentation, MCP servers, skills, and hooks together.
     estimatedCost: cost,
   })
 
-  console.log(`\n${c.green("✅")} Ready. Open Claude Code and run:\n   ${c.cyan("/stack-add")}`)
-
-  section("Token cost")
-  console.log(`  ~${tokens.toLocaleString()} input tokens (${c.dim(`${formatCost(cost)}`)})`)
-  console.log("")
+  console.log(`\n${c.green("✅")} Ready. Open Claude Code and run:\n   ${c.cyan("/stack-add")}\n`)
 }
