@@ -1,5 +1,34 @@
 # Changelog
 
+## v1.1.8 — 2026-03-28
+
+### Add: marketplace-first automation
+- `/stack-add` now goes directly to marketplace search after user input — no more clarifying questions or manual steps
+- Marketplace instructions are embedded in the bootstrap command so Claude executes curl/install commands automatically
+- Zero-friction flow: user says what they want → marketplace is searched → skills are installed
+
+### Sync: rich line-level diffs
+- `npx claude-setup sync` now shows color-coded output: green `+` for added, yellow `~` for modified, red `-` for deleted
+- Modified files display line-level diff summaries (`+22 lines, -5 lines`) with preview of actual changes
+- Sync template now includes `diff` code blocks so Claude can inspect exactly what changed in each file
+- Fixed the "Stack already in sync" contradiction — bootstrap command now clearly distinguishes between "no changes" and "changes applied, process them"
+
+### MCP: smart auto-configuration
+- New service auto-discovery: scans docker-compose, .env.example, package.json, requirements.txt, pyproject.toml to detect which services the project uses
+- Detects locally installed services (PostgreSQL, MongoDB, Redis, MySQL) using OS-appropriate commands
+- 4-tier connection strategy: (1) check env var, (2) detect local service, (3) use default localhost URL, (4) fall back to `${VARNAME}` + flag — eliminates the "MCP server not showing" problem
+- macOS: Homebrew-aware detection (`brew list postgresql`, `brew services list`)
+
+### OS: WSL and macOS support
+- Added WSL (Windows Subsystem for Linux) as a distinct OS type — detected via `/proc/version` and `WSL_DISTRO_NAME`
+- WSL uses Unix-style commands (npx direct, bash), not Windows cmd wrapper — doctor auto-fixes `cmd /c` to `npx` on WSL
+- WSL can reach Windows-host services on localhost — documented in MCP instructions
+- macOS: Homebrew-aware service detection commands in both init and add templates
+- New `isUnixLike()` helper — returns true for Linux, macOS, and WSL
+- All OS-specific conditionals updated: MCP format, hook commands, service detection, channel server setup
+
+---
+
 ## v1.1.7 — 2026-03-28
 
 ### Sync: true checkpoint system

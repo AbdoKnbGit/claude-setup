@@ -2,6 +2,9 @@
 
 Add to Claude Code setup: "{{USER_INPUT}}"
 
+**CRITICAL: Marketplace-first. Do NOT ask clarifying questions. Search and install automatically.**
+**Execute every curl/install command yourself. The user expects zero-friction automation.**
+
 ## Project context
 {{PROJECT_CONTEXT}}
 
@@ -38,8 +41,37 @@ Parse the user's request and take ALL applicable actions:
 If the request mentions an external service (database, API, browser, etc.):
 - Check the verified MCP package list below
 - If found: add to `.mcp.json` with OS-correct format (detected: {{DETECTED_OS}})
-- Use `${VARNAME}` syntax for all credentials — NEVER hardcode
+- **Smart connection strings** — follow this order:
+  1. Check if the env var is already set in the environment
+  2. If not set, detect if the service is installed locally (run check command below)
+  3. If local service found: use default localhost URL directly in env block
+  4. If nothing found: use `${VARNAME}` syntax and flag the missing var
 - Document new env vars in `.env.example`
+
+**Service detection commands ({{DETECTED_OS}}):**
+{{#if IS_WINDOWS}}
+- PostgreSQL: `where psql 2>nul` → default: `postgresql://localhost:5432/postgres`
+- MongoDB: `where mongosh 2>nul` → default: `mongodb://localhost:27017`
+- Redis: `where redis-cli 2>nul` → default: `redis://localhost:6379`
+- MySQL: `where mysql 2>nul` → default: `mysql://root@localhost:3306`
+{{else}}
+{{#if IS_MACOS}}
+- PostgreSQL: `command -v psql || brew list postgresql 2>/dev/null` → default: `postgresql://localhost:5432/postgres`
+- MongoDB: `command -v mongosh || brew list mongodb-community 2>/dev/null` → default: `mongodb://localhost:27017`
+- Redis: `command -v redis-cli || brew list redis 2>/dev/null` → default: `redis://localhost:6379`
+- MySQL: `command -v mysql || brew list mysql 2>/dev/null` → default: `mysql://root@localhost:3306`
+{{else}}
+- PostgreSQL: `command -v psql` → default: `postgresql://localhost:5432/postgres`
+- MongoDB: `command -v mongosh` → default: `mongodb://localhost:27017`
+- Redis: `command -v redis-cli` → default: `redis://localhost:6379`
+- MySQL: `command -v mysql` → default: `mysql://root@localhost:3306`
+{{/if}}
+{{#if IS_WSL}}
+Note: WSL can access Windows-host services on localhost. If the service runs on the Windows side, it is reachable at `localhost` from WSL.
+{{/if}}
+{{/if}}
+
+Run the check command. If the service IS installed locally and the env var is NOT set, use the default URL directly. This avoids the "MCP server not showing" problem where `${VARNAME}` fails silently.
 
 Verified MCP packages — ONLY use these for MCP servers:
 ```

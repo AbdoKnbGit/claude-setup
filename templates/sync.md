@@ -1,8 +1,12 @@
 <!-- claude-setup sync {{DATE}} | last: {{LAST_RUN_DATE}} -->
 
 > **Step 1 — always do this first:** Run `npx claude-setup sync` to refresh this file with the latest diff.
-> - If it outputs "No changes since…" → respond "Stack already in sync." and STOP.
-> - Otherwise → re-read `.claude/commands/stack-sync.md` (Step 2), then process the diff below (Step 3).
+> - If the output says **"No changes"** and shows "Setup is current" → respond "No changes detected since last sync. Everything is up to date." and STOP.
+> - If the output shows **changes** (any "+N added", "~N modified", or "-N deleted" with N > 0) → continue to Step 2.
+> **Step 2:** Re-read `.claude/commands/stack-sync.md` — it now contains the actual diff with line-level changes.
+> **Step 3:** Process every change listed below. Update CLAUDE.md, .mcp.json, settings.json as needed.
+
+**IMPORTANT:** Do NOT tell the user to "run /stack-sync" — you ARE running it right now. Process the diff below.
 
 Project changed since last setup. Update ONLY what the changes demand.
 

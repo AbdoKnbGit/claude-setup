@@ -128,10 +128,11 @@ export function buildMarketplaceInstructions(input: string): string {
   const categoryFilter = categories[0] ?? ""
 
   const lines: string[] = []
-  lines.push(`## Marketplace — fully automated install`)
+  lines.push(`## Marketplace — fully automated install (DO NOT ASK — JUST DO IT)`)
   lines.push(``)
   lines.push(`A plugin marketplace has 416 community skills + 13 official Anthropic plugins.`)
-  lines.push(`Follow the steps below IN ORDER. Do not stop until a skill is installed.`)
+  lines.push(`Follow the steps below IN ORDER. Execute every command yourself. Do not stop until a skill is installed.`)
+  lines.push(`**DO NOT ask the user clarifying questions. DO NOT suggest commands for the user to run. Execute them yourself.**`)
   lines.push(``)
 
   if (categories.length > 0 || saasMatches.length > 0) {

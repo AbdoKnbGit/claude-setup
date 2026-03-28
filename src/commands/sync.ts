@@ -50,6 +50,34 @@ function truncate(content: string, maxChars: number): string {
 }
 
 /**
+ * Compute a simple line-level diff between two strings.
+ * Returns added lines (green) and removed lines (red).
+ */
+function computeLineDiff(
+  oldContent: string,
+  newContent: string,
+  maxLines: number = 20
+): { added: string[]; removed: string[]; summary: string } {
+  const oldLines = oldContent.split("\n")
+  const newLines = newContent.split("\n")
+
+  const oldSet = new Set(oldLines)
+  const newSet = new Set(newLines)
+
+  const added = newLines.filter(l => !oldSet.has(l) && l.trim() !== "")
+  const removed = oldLines.filter(l => !newSet.has(l) && l.trim() !== "")
+
+  const totalChanges = added.length + removed.length
+  const summary = `+${added.length} lines, -${removed.length} lines`
+
+  return {
+    added: added.slice(0, maxLines),
+    removed: removed.slice(0, maxLines),
+    summary,
+  }
+}
+
+/**
  * Legacy diff — compares manifest hashes against collected files.
  * Only used when no snapshot data is available (e.g., old projects).
  */
@@ -99,6 +127,7 @@ function computeLegacyDiff(snapshot: Record<string, string>, collected: Collecte
 /**
  * Full-scan diff — compares every file on disk against a reference snapshot.
  * This is the authoritative diff: catches ALL file changes, no sampling.
+ * Now includes line-level diffs for modified files.
  */
 function computeFullDiff(
   currentFiles: Array<{ path: string; content: string }>,
@@ -118,7 +147,13 @@ function computeFullDiff(
       const currentHash = sha256(f.content)
       const refHash = sha256(referenceFiles[f.path])
       if (currentHash !== refHash) {
-        changed.push({ path: f.path, current: truncate(f.content, 2000) })
+        const lineDiff = computeLineDiff(referenceFiles[f.path], f.content)
+        changed.push({
+          path: f.path,
+          current: truncate(f.content, 2000),
+          previous: truncate(referenceFiles[f.path], 2000),
+          lineDiff,
+        })
       }
     }
   }
@@ -220,15 +255,21 @@ export async function runSync(opts: { dryRun?: boolean; budget?: number } = {}):
     console.log(c.bold("[DRY RUN] Changes detected:\n"))
     if (diff.added.length) {
       console.log(c.green(`  +${diff.added.length} added`))
-      for (const f of diff.added) console.log(`    ${f.path}`)
+      for (const f of diff.added) {
+        const lineCount = f.content.split("\n").length
+        console.log(c.green(`    + ${f.path}`) + c.dim(` (${lineCount} lines)`))
+      }
     }
     if (diff.changed.length) {
       console.log(c.yellow(`  ~${diff.changed.length} modified`))
-      for (const f of diff.changed) console.log(`    ${f.path}`)
+      for (const f of diff.changed) {
+        const diffInfo = f.lineDiff ? ` (${f.lineDiff.summary})` : ""
+        console.log(c.yellow(`    ~ ${f.path}`) + c.dim(diffInfo))
+      }
     }
     if (diff.deleted.length) {
       console.log(c.red(`  -${diff.deleted.length} deleted`))
-      for (const f of diff.deleted) console.log(`    ${f}`)
+      for (const f of diff.deleted) console.log(c.red(`    - ${f}`))
     }
     console.log(`\n  Would write: .claude/commands/stack-sync.md (~${tokens.toLocaleString()} tokens)`)
 
@@ -248,10 +289,48 @@ export async function runSync(opts: { dryRun?: boolean; budget?: number } = {}):
     summary: `+${diff.added.length} added, ~${diff.changed.length} modified, -${diff.deleted.length} deleted`,
   })
 
-  console.log(`
-Changes since ${c.dim(lastRun.at)}:
-  ${c.green(`+${diff.added.length}`)} added  ${c.yellow(`~${diff.changed.length}`)} modified  ${c.red(`-${diff.deleted.length}`)} deleted
+  // --- Detailed diff output ---
+  console.log(`\nChanges since ${c.dim(lastRun.at)}:`)
+  console.log(`  ${c.green(`+${diff.added.length}`)} added  ${c.yellow(`~${diff.changed.length}`)} modified  ${c.red(`-${diff.deleted.length}`)} deleted\n`)
 
-${c.green("✅")} Run ${c.cyan("/stack-sync")} in Claude Code to apply.
-  `)
+  if (diff.added.length > 0) {
+    console.log(c.green(c.bold("  Added files:")))
+    for (const f of diff.added) {
+      const lineCount = f.content.split("\n").length
+      console.log(c.green(`    + ${f.path}`) + c.dim(` (${lineCount} lines)`))
+    }
+    console.log("")
+  }
+
+  if (diff.changed.length > 0) {
+    console.log(c.yellow(c.bold("  Modified files:")))
+    for (const f of diff.changed) {
+      const diffInfo = f.lineDiff ? ` (${f.lineDiff.summary})` : ""
+      console.log(c.yellow(`    ~ ${f.path}`) + c.dim(diffInfo))
+      if (f.lineDiff) {
+        for (const line of f.lineDiff.removed.slice(0, 3)) {
+          console.log(c.red(`      - ${line.trim().slice(0, 80)}`))
+        }
+        for (const line of f.lineDiff.added.slice(0, 3)) {
+          console.log(c.green(`      + ${line.trim().slice(0, 80)}`))
+        }
+        const totalShown = Math.min(f.lineDiff.removed.length, 3) + Math.min(f.lineDiff.added.length, 3)
+        const totalChanges = f.lineDiff.removed.length + f.lineDiff.added.length
+        if (totalChanges > totalShown) {
+          console.log(c.dim(`      ... +${totalChanges - totalShown} more changes`))
+        }
+      }
+    }
+    console.log("")
+  }
+
+  if (diff.deleted.length > 0) {
+    console.log(c.red(c.bold("  Deleted files:")))
+    for (const f of diff.deleted) {
+      console.log(c.red(`    - ${f}`))
+    }
+    console.log("")
+  }
+
+  console.log(`${c.green("✅")} Run ${c.cyan("/stack-sync")} in Claude Code to apply.\n`)
 }

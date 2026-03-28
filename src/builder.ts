@@ -4,7 +4,7 @@ import { fileURLToPath } from "url"
 import { CollectedFiles } from "./collect.js"
 import { ExistingState } from "./state.js"
 import { loadConfig } from "./config.js"
-import { detectOS, VERIFIED_MCP_PACKAGES } from "./os.js"
+import { detectOS, isUnixLike, VERIFIED_MCP_PACKAGES, buildServiceDiscoveryInstructions } from "./os.js"
 import { buildMarketplaceInstructions } from "./marketplace.js"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -112,6 +112,7 @@ function buildVars(collected: CollectedFiles, state: ExistingState): Record<stri
 }
 
 function buildFlags(_collected: CollectedFiles, state: ExistingState): Record<string, boolean> {
+  const os = detectOS()
   return {
     HAS_SOURCE: _collected.source.length > 0,
     HAS_SKIPPED: _collected.skipped.length > 0,
@@ -119,7 +120,10 @@ function buildFlags(_collected: CollectedFiles, state: ExistingState): Record<st
     HAS_MCP_JSON: state.mcpJson.exists,
     HAS_SETTINGS: state.settings.exists,
     HAS_GITHUB_DIR: state.hasGithubDir,
-    IS_WINDOWS: detectOS() === "Windows",
+    IS_WINDOWS: os === "Windows",  // WSL uses Unix-style commands, not cmd
+    IS_WSL: os === "WSL",
+    IS_MACOS: os === "macOS",
+    IS_UNIX_LIKE: isUnixLike(os),
   }
 }
 
@@ -192,20 +196,49 @@ export function buildAddCommand(input: string, collected: CollectedFiles, state:
 
 export interface FileDiff {
   added: Array<{ path: string; content: string }>
-  changed: Array<{ path: string; current: string }>
+  changed: Array<{ path: string; current: string; previous?: string; lineDiff?: { added: string[]; removed: string[]; summary: string } }>
   deleted: string[]
 }
 
 export function buildSyncCommand(diff: FileDiff, collected: CollectedFiles, state: ExistingState): string {
-  // Compact diff format — paths + one-line summary, not full content
+  // Rich diff format — paths + line-level changes for modified files
   const addedStr = diff.added.length > 0
     ? diff.added.map(f => `- **${f.path}** (new) — ${f.content.split("\n").length} lines`).join("\n")
     : "(none)"
-  const modifiedStr = diff.changed.length > 0
-    ? diff.changed.map(f => `- **${f.path}** (modified)`).join("\n")
-    : "(none)"
+
+  // Modified files now include line-level diffs
+  let modifiedStr: string
+  if (diff.changed.length > 0) {
+    const parts: string[] = []
+    for (const f of diff.changed) {
+      const lines: string[] = [`- **${f.path}** (modified)`]
+      if (f.lineDiff) {
+        lines[0] += ` — ${f.lineDiff.summary}`
+        if (f.lineDiff.removed.length > 0 || f.lineDiff.added.length > 0) {
+          lines.push("  ```diff")
+          for (const l of f.lineDiff.removed.slice(0, 8)) {
+            lines.push(`  - ${l.trimEnd().slice(0, 120)}`)
+          }
+          for (const l of f.lineDiff.added.slice(0, 8)) {
+            lines.push(`  + ${l.trimEnd().slice(0, 120)}`)
+          }
+          const totalShown = Math.min(f.lineDiff.removed.length, 8) + Math.min(f.lineDiff.added.length, 8)
+          const total = f.lineDiff.removed.length + f.lineDiff.added.length
+          if (total > totalShown) {
+            lines.push(`  # ... +${total - totalShown} more changes`)
+          }
+          lines.push("  ```")
+        }
+      }
+      parts.push(lines.join("\n"))
+    }
+    modifiedStr = parts.join("\n")
+  } else {
+    modifiedStr = "(none)"
+  }
+
   const deletedStr = diff.deleted.length > 0
-    ? diff.deleted.map(f => `- ${f}`).join("\n")
+    ? diff.deleted.map(f => `- ~~${f}~~ (deleted)`).join("\n")
     : "(none)"
 
   const lastRun = state.manifest?.runs.at(-1)
@@ -226,8 +259,12 @@ export function buildBootstrapSync(): string {
   return `<!-- stack-sync: self-refreshing sync command. Last generated: ${new Date().toISOString().split("T")[0]} -->
 
 > **Step 1 — always do this first:** Run \`npx claude-setup sync\` to refresh this file with the latest diff.
-> - If it outputs "No changes since…" → respond "Stack already in sync." and STOP.
-> - Otherwise → re-read \`.claude/commands/stack-sync.md\` (Step 2), then process the diff below (Step 3).
+> - If the output says **"No changes"** and shows "Setup is current" → respond "No changes detected since last sync. Everything is up to date." and STOP.
+> - If the output shows **changes** (any "+N added", "~N modified", or "-N deleted" with N > 0) → it means the file has been regenerated. Continue to Step 2.
+> **Step 2:** Re-read \`.claude/commands/stack-sync.md\` — it now contains the actual diff with line-level changes.
+> **Step 3:** Process every change listed. Update CLAUDE.md, .mcp.json, settings.json as needed. Surgical edits only.
+
+**IMPORTANT:** The sync command creates a snapshot AND regenerates this file. The "Run /stack-sync" message in the output is for YOU — it means this file is now ready to be re-read. Do NOT tell the user to run /stack-sync again.
 
 ## Changes since last setup
 
@@ -308,7 +345,9 @@ export function buildAtomicSteps(collected: CollectedFiles, state: ExistingState
     // --- Step 2: .mcp.json ---
     {
       filename: "stack-2-mcp.md",
-      content: header + preamble +
+      content: (() => {
+        const serviceDiscovery = buildServiceDiscoveryInstructions(process.cwd())
+        return header + preamble +
         `## Target: .mcp.json\n\n` +
         (state.mcpJson.exists
           ? `### Current content — MERGE ONLY, never remove existing entries:\n${vars.MCP_JSON_CONTENT}\n\n`
@@ -322,6 +361,7 @@ export function buildAtomicSteps(collected: CollectedFiles, state: ExistingState
         `- User mentioned external services during init questions\n\n` +
         `If ANY evidence is found, create .mcp.json with the corresponding servers.\n` +
         `No evidence = no server. Do not invent services.\n\n` +
+        (serviceDiscovery ? serviceDiscovery + `\n` : ``) +
         `### Verified MCP package names — ONLY use these\n` +
         `\`\`\`\n` +
         Object.entries(VERIFIED_MCP_PACKAGES).map(([k, v]) => `${k.padEnd(12)} → ${v}`).join("\n") +
@@ -329,7 +369,7 @@ export function buildAtomicSteps(collected: CollectedFiles, state: ExistingState
         `If the service is not in this list, print:\n` +
         `\`⚠️ UNKNOWN PACKAGE — [service] MCP server not added: package name unverified. Find it at https://github.com/modelcontextprotocol/servers\`\n` +
         `Do not add a placeholder. Do not guess.\n\n` +
-        `### OS-correct format (detected: ${os})\n` +
+        `### OS-correct format (detected: ${os}${os === "WSL" ? " — uses Unix-style commands, services reachable on localhost" : ""})\n` +
         `**Preferred: use CLI to add (writes to .mcp.json automatically):**\n` +
         (os === "Windows"
           ? `\`\`\`\nclaude mcp add --scope project --transport stdio <name> -- cmd /c npx -y <package>\n\`\`\`\n`
@@ -339,16 +379,32 @@ export function buildAtomicSteps(collected: CollectedFiles, state: ExistingState
           ? `Use: \`{ "command": "cmd", "args": ["/c", "npx", "-y", "<package>"] }\`\n`
           : `Use: \`{ "command": "npx", "args": ["-y", "<package>"] }\`\n`) +
         `Always include \`-y\` in npx args to prevent install hangs.\n` +
-        `\n### Connection strings — NEVER hardcode\n` +
-        `Wrong: \`"args": [..., "postgresql://localhost:5432/db"]\`\n` +
-        `Right: \`"env": { "DATABASE_URL": "\${DATABASE_URL}" }\`\n` +
-        `All credentials and connection strings must go in \`env\` using \`\${VARNAME}\` syntax.\n` +
-        `After adding any server with env vars, flag them:\n` +
-        `\`⚠️ Add DATABASE_URL to .env.example and populate before starting Claude Code\`\n\n` +
-        `\n### Rules\n` +
-        `- All env var refs use \`\${VARNAME}\` syntax — never literal values\n` +
+        (os === "WSL" ? `Note: WSL uses Unix-style npx — do NOT use \`cmd /c\` wrapper.\n` : ``) +
+        (os === "macOS" ? `Note: On macOS, Homebrew services run on localhost by default. Check with \`brew services list\`.\n` : ``) +
+        `\n` +
+        `### Connection strings — smart auto-configuration\n` +
+        `For each MCP server that needs a connection string:\n` +
+        `1. **Check environment first:** If \`\${VARNAME}\` is set in the user's environment, use \`"env": { "VAR": "\${VAR}" }\`\n` +
+        `2. **Detect local service:** Run the OS-appropriate check command to see if the service is installed locally\n` +
+        (os === "Windows"
+          ? `   - PostgreSQL: \`where psql 2>nul\`\n   - MongoDB: \`where mongosh 2>nul\`\n   - Redis: \`where redis-cli 2>nul\`\n   - MySQL: \`where mysql 2>nul\`\n`
+          : os === "macOS"
+          ? `   - PostgreSQL: \`command -v psql || brew list postgresql 2>/dev/null\`\n   - MongoDB: \`command -v mongosh || brew list mongodb-community 2>/dev/null\`\n   - Redis: \`command -v redis-cli || brew list redis 2>/dev/null\`\n   - MySQL: \`command -v mysql || brew list mysql 2>/dev/null\`\n`
+          : `   - PostgreSQL: \`command -v psql\`\n   - MongoDB: \`command -v mongosh\`\n   - Redis: \`command -v redis-cli\`\n   - MySQL: \`command -v mysql\`\n`) +
+        `3. **If local service found and env var NOT set:** Use the well-known default URL directly in the env block:\n` +
+        `   - PostgreSQL: \`postgresql://localhost:5432/postgres\`\n` +
+        `   - MongoDB: \`mongodb://localhost:27017\`\n` +
+        `   - Redis: \`redis://localhost:6379\`\n` +
+        `   - MySQL: \`mysql://root@localhost:3306\`\n` +
+        `   AND document the var in .env.example with the default value\n` +
+        `4. **If neither env var nor local service found:** Use \`\${VARNAME}\` syntax and flag:\n` +
+        `   \`⚠️ Set VARNAME in your environment or .env file before starting Claude Code\`\n\n` +
+        `**NEVER hardcode credentials.** Default localhost URLs are acceptable for dev environments.\n` +
+        `After adding any server with env vars, always document them in .env.example.\n\n` +
+        `### Rules\n` +
         `- Produce valid JSON only\n` +
-        `- If creating: document every new env var in .env.example\n\n` +
+        `- If creating: document every new env var in .env.example\n` +
+        `- OS format must match detected OS: ${os}\n\n` +
         `### Channels (Telegram, Discord) — special MCP servers\n` +
         `Channels are MCP servers that push events INTO a session. They require:\n` +
         `- Claude Code v2.1.80+\n` +
@@ -364,6 +420,7 @@ export function buildAtomicSteps(collected: CollectedFiles, state: ExistingState
         (os === "Windows"
           ? `\`{ "command": "cmd", "args": ["/c", "bun", "run", "\${CLAUDE_PLUGIN_ROOT}/servers/telegram"], "env": { "TELEGRAM_BOT_TOKEN": "\${TELEGRAM_BOT_TOKEN}" } }\`\n`
           : `\`{ "command": "bun", "args": ["run", "\${CLAUDE_PLUGIN_ROOT}/servers/telegram"], "env": { "TELEGRAM_BOT_TOKEN": "\${TELEGRAM_BOT_TOKEN}" } }\`\n`) +
+        (os === "WSL" ? `(WSL note: Bun must be installed inside WSL, not the Windows-side installation.)\n` : ``) +
         `After adding, flag: \`⚠️ CHANNEL ACTIVATION REQUIRED — launch with: claude --channels plugin:telegram@claude-plugins-official\`\n\n` +
         `### Self-correction fallback\n` +
         `If MCP configuration fails or produces warnings:\n` +
@@ -374,7 +431,8 @@ export function buildAtomicSteps(collected: CollectedFiles, state: ExistingState
         `Do NOT leave broken MCP configuration in place — either fix it or remove the entry.\n\n` +
         `### Output\n` +
         `Created/Updated: ✅ .mcp.json — [what server and evidence source]\n` +
-        `Skipped: ⏭ .mcp.json — checked [files], found [nothing], no action\n`,
+        `Skipped: ⏭ .mcp.json — checked [files], found [nothing], no action\n`
+      })(),
     },
 
     // --- Step 3: .claude/settings.json ---

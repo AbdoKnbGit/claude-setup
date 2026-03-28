@@ -1,93 +1,118 @@
 # claude-setup
 
-One command to set up Claude Code for any project. It reads your code, configures everything, and gives you slash commands that work inside Claude Code.
+Your project already has the answers — `claude-setup` reads them and configures Claude Code so you don't have to.
 
-## Quick start
+One command. No manual config. Works on **Windows, macOS, Linux, and WSL**.
+
+## Get started
 
 ```bash
 npx claude-setup
 ```
 
-Pick `1` (init), then open Claude Code and run `/stack-init`. That's it.
+Pick `1` (init). Then open Claude Code and run:
 
-After init, these slash commands are available inside Claude Code:
+```
+/stack-init
+```
 
-| Slash command | What it does |
-|--------------|-------------|
-| `/stack-init` | Set up the project (CLAUDE.md, MCP servers, hooks, skills) |
-| `/stack-sync` | Detect all file changes and update the setup |
-| `/stack-add` | Add a capability (searches 400+ marketplace plugins first) |
-| `/stack-remove` | Remove a capability cleanly |
+That's it. Claude Code now knows your stack, your services, your conventions.
+
+## What happens during init
+
+`claude-setup` scans your project files — `package.json`, `docker-compose.yml`, `.env.example`, source code — and generates everything Claude Code needs:
+
+| Generated | What it does |
+|-----------|-------------|
+| **CLAUDE.md** | Project context — stack, structure, commands, conventions |
+| **.mcp.json** | MCP server connections — auto-detected from your dependencies |
+| **settings.json** | Hooks — auto-format, token tracking, build triggers |
+| **skills/** | Reusable patterns for your workflow |
+| **commands/** | Slash commands that work inside Claude Code |
+
+Every line comes from evidence in your project files. No guessing.
+
+### MCP servers are auto-configured
+
+`claude-setup` detects your databases and services automatically:
+
+- Finds PostgreSQL, MongoDB, Redis, MySQL from your deps, docker-compose, or env files
+- Checks if the service is installed locally (`psql`, `mongosh`, `redis-cli`)
+- Uses the right connection URL — no broken `${VARNAME}` that fails silently
+- Formats commands for your OS (`cmd /c npx` on Windows, `npx` everywhere else)
+
+## After init
+
+These slash commands work inside Claude Code:
+
+| Command | What it does |
+|---------|-------------|
+| `/stack-sync` | Detect file changes, update your setup |
+| `/stack-add` | Add a capability — searches 400+ marketplace plugins first |
 | `/stack-status` | Show project state, snapshots, token usage |
-| `/stack-doctor` | Validate environment, offer auto-fix |
+| `/stack-doctor` | Validate environment, auto-fix issues |
 | `/stack-restore` | Time-travel to any snapshot |
+| `/stack-remove` | Remove a capability cleanly |
 
-No extra terminal commands needed after init.
+### `/stack-add` searches the marketplace for you
 
-## What it does
+Say what you want — it searches 400+ community plugins and 13 official Anthropic plugins, downloads and installs matching skills automatically. No manual steps.
 
-You have a project. You want Claude Code to understand it — know the stack, connect to your database, run the right hooks, have useful skills.
+```
+/stack-add
+> "E2E testing and Stripe integration"
+```
 
-`claude-setup` reads your project files, figures out what's there, and generates the right config:
+### `/stack-sync` shows what changed
 
-- **CLAUDE.md** — project context (stack, structure, commands, conventions)
-- **.mcp.json** — MCP server connections (only if your project actually uses them)
-- **settings.json** — hooks in the correct format
-- **skills/** — reusable patterns for your workflow
-- **commands/** — project-specific slash commands
+Every sync creates a snapshot and shows a color-coded diff:
 
-It doesn't guess. Every line it writes comes from evidence in your project files.
+```
+Changes since 2026-03-28T14:32:01.904Z:
+  +2 added  ~3 modified  -1 deleted
+
+  Added files:
+    + src/api/payments.ts (48 lines)
+    + src/api/webhooks.ts (32 lines)
+
+  Modified files:
+    ~ package.json (+3 lines, -1 lines)
+    ~ src/index.ts (+8 lines, -2 lines)
+```
+
+Claude Code sees the actual line-level changes and updates your setup surgically.
 
 ## Snapshots
 
-Every init and sync saves a full snapshot of your project — like a git commit for your setup.
+Every init and sync saves a full snapshot. You can jump to any point in time:
 
 ```
-init ──→ sync#1 ──→ sync#2 ──→ sync#3 (you are here)
-              │
+/stack-restore
+```
+
+```
+init ──> sync#1 ──> sync#2 ──> sync#3 (you are here)
+              |
               └── jump back here anytime
 ```
 
-- **Restore**: `npx claude-setup restore` — interactive arrow-key navigation, pick any snapshot
-- **Compare**: `npx claude-setup compare` — diff two snapshots to find what changed
-- Snapshots are never deleted — you can always go back or forward
+Snapshots are never deleted. Go back, go forward, freely.
 
-## Sync = checkpoint
-
-Sync captures **every file** in your project (respects `.gitignore`). When you add new routes, services, configs — sync catches all of it and updates your setup.
+## All CLI commands
 
 ```bash
-npx claude-setup sync
-```
-
-Or just run `/stack-sync` inside Claude Code.
-
-## Marketplace
-
-The `add` command searches 400+ community plugins and 13 official Anthropic plugins before creating anything custom.
-
-```bash
-npx claude-setup add "Stripe and testing"
-```
-
-Or run `/stack-add` inside Claude Code — it asks what you want, searches the marketplace, and installs.
-
-## All commands
-
-You can also run any command directly:
-
-```bash
-npx claude-setup init                        # Full project setup
-npx claude-setup add "postgres MCP server"   # Add a capability
-npx claude-setup sync                        # Checkpoint + update setup
-npx claude-setup status                      # Dashboard
-npx claude-setup doctor                      # Validate everything
-npx claude-setup doctor --fix                # Auto-fix issues
-npx claude-setup restore                     # Time-travel to a snapshot
-npx claude-setup compare                     # Diff two snapshots
-npx claude-setup remove "redis"              # Remove a capability
-npx claude-setup export                      # Save setup as reusable template
-npx claude-setup init --template file.json   # Apply a saved template
+npx claude-setup                         # Interactive menu
+npx claude-setup init                    # Full project setup
+npx claude-setup sync                    # Checkpoint + update
+npx claude-setup add "postgres and testing"  # Add capabilities
+npx claude-setup status                  # Dashboard
+npx claude-setup doctor                  # Validate everything
+npx claude-setup doctor --fix            # Auto-fix issues
+npx claude-setup restore                 # Time-travel
+npx claude-setup compare                 # Diff two snapshots
+npx claude-setup remove "redis"          # Remove cleanly
+npx claude-setup export                  # Save as template
+npx claude-setup init --template file    # Apply a template
 ```
 
 ## Configuration
@@ -102,6 +127,15 @@ Auto-generated on first run. Edit `.claude-setup.json` if needed:
   "digestMode": true
 }
 ```
+
+## Supported platforms
+
+| Platform | Status | MCP format |
+|----------|--------|-----------|
+| Windows | Full support | `cmd /c npx -y <pkg>` |
+| macOS | Full support + Homebrew detection | `npx -y <pkg>` |
+| Linux | Full support | `npx -y <pkg>` |
+| WSL | Full support + Windows host access | `npx -y <pkg>` |
 
 ## License
 
