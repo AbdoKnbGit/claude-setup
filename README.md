@@ -1,158 +1,105 @@
 # claude-setup
 
-Setup layer for Claude Code. Reads your project, writes command files, Claude Code does the rest.
+One command to set up Claude Code for any project. It reads your code, configures everything, and gives you slash commands that work inside Claude Code.
 
-**The CLI has zero intelligence.** All reasoning is delegated to Claude Code via the command files.
-
-## Install
+## Quick start
 
 ```bash
-npx claude-setup init
+npx claude-setup
 ```
 
-Then open Claude Code and run `/stack-init`.
+Pick `1` (init), then open Claude Code and run `/stack-init`. That's it.
 
-## Commands
+After init, these slash commands are available inside Claude Code:
 
-| Command | What it does |
-|---------|-------------|
-| `init` | Full project setup — detects empty projects, generates atomic setup steps |
-| `add` | Add capabilities — MCP servers, skills, hooks, plugins in one go |
-| `sync` | Update setup after project changes — diff-based, not full re-scan |
-| `status` | Dashboard — project info, setup files, snapshots, token usage |
-| `doctor` | Validate everything — OS format, hooks, env vars, stale skills |
-| `remove` | Remove capabilities cleanly with dangling reference detection |
-| `restore` | Jump to any snapshot — restore files to a previous state |
-| `compare` | Diff two snapshots — find exactly where something changed |
-| `export` | Save your setup as a reusable template |
+| Slash command | What it does |
+|--------------|-------------|
+| `/stack-init` | Set up the project (CLAUDE.md, MCP servers, hooks, skills) |
+| `/stack-sync` | Detect all file changes and update the setup |
+| `/stack-add` | Add a capability (searches 400+ marketplace plugins first) |
+| `/stack-remove` | Remove a capability cleanly |
+| `/stack-status` | Show project state, snapshots, token usage |
+| `/stack-doctor` | Validate environment, offer auto-fix |
+| `/stack-restore` | Time-travel to any snapshot |
 
-### Flags
+No extra terminal commands needed after init.
 
-```bash
-npx claude-setup init --dry-run            # Preview without writing
-npx claude-setup init --template my.json   # Apply a saved template
-npx claude-setup sync --dry-run            # Show changes without writing
-npx claude-setup sync --budget 3000        # Override token budget
-npx claude-setup doctor --verbose          # Include passing checks
-npx claude-setup doctor --fix              # Auto-fix issues
-npx claude-setup doctor --test-hooks       # Run every hook in sandbox
-```
+## What it does
 
-## How it works
+You have a project. You want Claude Code to understand it — know the stack, connect to your database, run the right hooks, have useful skills.
 
-1. **CLI collects** — reads project files with strict token cost controls
-2. **CLI writes** — generates markdown instructions into `.claude/commands/`
-3. **Claude Code executes** — you run `/stack-init`, `/stack-sync`, etc.
+`claude-setup` reads your project files, figures out what's there, and generates the right config:
 
-## What it creates
+- **CLAUDE.md** — project context (stack, structure, commands, conventions)
+- **.mcp.json** — MCP server connections (only if your project actually uses them)
+- **settings.json** — hooks in the correct format
+- **skills/** — reusable patterns for your workflow
+- **commands/** — project-specific slash commands
 
-| File | Purpose |
-|------|---------|
-| `CLAUDE.md` | Project-specific context for Claude Code |
-| `.mcp.json` | MCP server connections (only if evidenced by project files) |
-| `.claude/settings.json` | Hooks in correct Claude Code format |
-| `.claude/skills/` | Reusable patterns with frontmatter |
-| `.claude/commands/` | Project-specific slash commands |
-| `.github/workflows/` | CI workflows (only with confirmation) |
+It doesn't guess. Every line it writes comes from evidence in your project files.
 
 ## Snapshots
 
-Every `init` and `sync` creates a snapshot node — a checkpoint on a timeline. Snapshots store the content of changed files only.
+Every init and sync saves a full snapshot of your project — like a git commit for your setup.
 
 ```
-init ──→ sync#1 ──→ sync#2 ──→ sync#3 (current)
-              │                    │
-              │                    └─ bug introduced here
-              └─ jump back here
+init ──→ sync#1 ──→ sync#2 ──→ sync#3 (you are here)
+              │
+              └── jump back here anytime
 ```
 
-- `npx claude-setup restore` — pick any snapshot and restore files to that state
-- `npx claude-setup compare` — diff any two snapshots to find what changed
-- Jumping does **not** delete other snapshots — all are preserved
+- **Restore**: `npx claude-setup restore` — interactive arrow-key navigation, pick any snapshot
+- **Compare**: `npx claude-setup compare` — diff two snapshots to find what changed
+- Snapshots are never deleted — you can always go back or forward
 
-## Templates
+## Sync = checkpoint
 
-Save your setup and reuse it across projects.
+Sync captures **every file** in your project (respects `.gitignore`). When you add new routes, services, configs — sync catches all of it and updates your setup.
 
 ```bash
-# Export current setup
-npx claude-setup export
-# → creates my-template.claude-template.json
-
-# Apply to a new project
-npx claude-setup init --template my-template.claude-template.json
-
-# Apply from a URL
-npx claude-setup init --template https://example.com/template.json
+npx claude-setup sync
 ```
 
-Templates capture CLAUDE.md, MCP servers, hooks, skills, and commands. On import:
-- Existing content is kept, new content is merged
-- MCP commands are auto-adapted for the target OS
-- Skills and commands with the same name are skipped
-
-## Token Cost Tracking
-
-Every command shows estimated token usage and cost across all Claude models.
-
-```
-Token cost
-  ~2,450 input tokens (Opus $0.0368 | Sonnet $0.0074 | Haiku $0.0006)
-```
-
-Status shows cumulative stats, per-command averages, and cost trends. Use `--budget` on sync to override the token limit for a single run.
-
-## Doctor
-
-Validates your entire setup and reports issues by severity.
-
-```bash
-npx claude-setup doctor           # Check everything
-npx claude-setup doctor --fix     # Auto-fix what's possible
-npx claude-setup doctor --test-hooks  # Run each hook, report pass/fail
-```
-
-What `--fix` can repair:
-- Remove accidental model overrides from settings.json
-- Convert MCP commands to the correct OS format
-- Add missing `-y` flags to npx calls
-- Re-snapshot files modified outside the CLI
-
-What `--test-hooks` checks per hook:
-- Command exists on the system
-- Command executes without error
-- Exit code and stderr
-- Execution time and timeout detection
-- Matcher regex validity
+Or just run `/stack-sync` inside Claude Code.
 
 ## Marketplace
 
-The `add` command integrates with [claude-code-plugins-plus-skills](https://github.com/jeremylongshore/claude-code-plugins-plus-skills) — 340+ plugins and 1,367+ skills across 20 categories.
+The `add` command searches 400+ community plugins and 13 official Anthropic plugins before creating anything custom.
 
 ```bash
-npx claude-setup add
-# → "Stripe and frontend skills"
-# → generates stack-add.md with marketplace search + install instructions
+npx claude-setup add "Stripe and testing"
+```
+
+Or run `/stack-add` inside Claude Code — it asks what you want, searches the marketplace, and installs.
+
+## All commands
+
+You can also run any command directly:
+
+```bash
+npx claude-setup init                        # Full project setup
+npx claude-setup add "postgres MCP server"   # Add a capability
+npx claude-setup sync                        # Checkpoint + update setup
+npx claude-setup status                      # Dashboard
+npx claude-setup doctor                      # Validate everything
+npx claude-setup doctor --fix                # Auto-fix issues
+npx claude-setup restore                     # Time-travel to a snapshot
+npx claude-setup compare                     # Diff two snapshots
+npx claude-setup remove "redis"              # Remove a capability
+npx claude-setup export                      # Save setup as reusable template
+npx claude-setup init --template file.json   # Apply a saved template
 ```
 
 ## Configuration
 
-Auto-generated on first run. Edit `.claude-setup.json` to customize:
+Auto-generated on first run. Edit `.claude-setup.json` if needed:
 
 ```json
 {
   "maxSourceFiles": 15,
   "maxDepth": 6,
-  "maxFileSizeKB": 80,
-  "tokenBudget": {
-    "init": 12000,
-    "sync": 6000,
-    "add": 3000,
-    "remove": 2000
-  },
-  "digestMode": true,
-  "extraBlockedDirs": [],
-  "sourceDirs": []
+  "tokenBudget": { "init": 12000, "sync": 6000, "add": 3000 },
+  "digestMode": true
 }
 ```
 
