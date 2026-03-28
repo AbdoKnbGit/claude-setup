@@ -217,6 +217,36 @@ export function buildSyncCommand(diff: FileDiff, collected: CollectedFiles, stat
   }, "sync")
 }
 
+/**
+ * Bootstrap stack-sync.md — installed by init so /stack-sync works immediately.
+ * When run, it tells Claude to invoke npx claude-setup sync first (which
+ * regenerates this file with the real diff), then re-read and process it.
+ */
+export function buildBootstrapSync(): string {
+  return `<!-- stack-sync: self-refreshing sync command. Last generated: ${new Date().toISOString().split("T")[0]} -->
+
+> **Step 1 — always do this first:** Run \`npx claude-setup sync\` to refresh this file with the latest diff.
+> - If it outputs "No changes since…" → respond "Stack already in sync." and STOP.
+> - Otherwise → re-read \`.claude/commands/stack-sync.md\` (Step 2), then process the diff below (Step 3).
+
+## Changes since last setup
+
+### Added files
+(none — run \`npx claude-setup sync\` to populate)
+
+### Modified files
+(none)
+
+### Deleted files
+(none)
+
+## Your job
+
+For EACH changed file: does this change have any implication for the Claude Code setup?
+Update ONLY what the change demands. Do NOT rewrite files — surgical edits only.
+`
+}
+
 export function buildRemoveCommand(input: string, state: ExistingState): string {
   const emptyCollected: CollectedFiles = { configs: {}, source: [], skipped: [] }
   return applyTemplate("remove.md", emptyCollected, state, { USER_INPUT: input }, "remove")

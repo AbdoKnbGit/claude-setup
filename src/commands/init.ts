@@ -7,6 +7,7 @@ import {
   buildEmptyProjectCommand,
   buildAtomicSteps,
   buildOrchestratorCommand,
+  buildBootstrapSync,
 } from "../builder.js"
 import { createSnapshot, collectFilesForSnapshot } from "../snapshot.js"
 import { estimateTokens, estimateCost, formatCost, getTokenHookScript, formatRealCostSummary } from "../tokens.js"
@@ -93,13 +94,13 @@ export async function runInit(opts: { dryRun?: boolean; template?: string } = {}
 
     ensureDir(".claude/commands")
     writeFileSync(".claude/commands/stack-init.md", content, "utf8")
+    writeFileSync(".claude/commands/stack-sync.md", buildBootstrapSync(), "utf8")
     await updateManifest("init", collected, { estimatedTokens: tokens, estimatedCost: cost })
     installTokenHook()
 
-    // Feature A: Create initial snapshot node
+    // Create initial snapshot — collectFilesForSnapshot scans all .claude/ automatically
     const cwd = process.cwd()
-    const allPaths = [...Object.keys(collected.configs), ...collected.source.map(s => s.path)]
-    const snapshotFiles = collectFilesForSnapshot(cwd, allPaths)
+    const snapshotFiles = collectFilesForSnapshot(cwd, Object.keys(collected.configs))
     createSnapshot(cwd, "init", snapshotFiles, { summary: "initial setup (empty project)" })
 
     console.log(`
@@ -115,7 +116,6 @@ Claude Code will ask 3 questions, then set up your environment.
     const realSummary1 = formatRealCostSummary(cwd)
     if (realSummary1) {
       console.log(realSummary1)
-      console.log(`  ${c.dim(`This command estimate: ~${tokens.toLocaleString()} input tokens (${formatCost(cost)})`)}`)
     } else {
       console.log(`  ~${tokens.toLocaleString()} input tokens (${c.dim(`${formatCost(cost)}`)})`)
       console.log(`  ${c.dim("Estimates only — real costs tracked after first Claude Code session")}`)
@@ -152,13 +152,13 @@ Claude Code will ask 3 questions, then set up your environment.
     writeFileSync(join(".claude/commands", step.filename), step.content, "utf8")
   }
   writeFileSync(".claude/commands/stack-init.md", orchestrator, "utf8")
+  writeFileSync(".claude/commands/stack-sync.md", buildBootstrapSync(), "utf8")
   await updateManifest("init", collected, { estimatedTokens: tokens, estimatedCost: cost })
   installTokenHook()
 
-  // Feature A: Create initial snapshot node
+  // Create initial snapshot — collectFilesForSnapshot scans all .claude/ automatically
   const cwd = process.cwd()
-  const allPaths = [...Object.keys(collected.configs), ...collected.source.map(s => s.path)]
-  const snapshotFiles = collectFilesForSnapshot(cwd, allPaths)
+  const snapshotFiles = collectFilesForSnapshot(cwd, Object.keys(collected.configs))
   createSnapshot(cwd, "init", snapshotFiles, {
     summary: `${steps.length - 1} atomic steps generated`,
   })
@@ -174,7 +174,6 @@ Runs ${steps.length - 1} atomic steps. If one fails, re-run only that step.
   const realSummary2 = formatRealCostSummary(cwd)
   if (realSummary2) {
     console.log(realSummary2)
-    console.log(`  ${c.dim(`This command estimate: ~${tokens.toLocaleString()} input tokens (${formatCost(cost)})`)}`)
   } else {
     console.log(`  ~${tokens.toLocaleString()} input tokens (${c.dim(`${formatCost(cost)}`)})`)
     console.log(`  ${c.dim("Estimates only — real costs tracked after first Claude Code session")}`)

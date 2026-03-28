@@ -398,10 +398,15 @@ export async function runDoctor(verbose = false, fix = false, testHooks = false)
             ))
             counts.warnings++
           } else if (result.status === "error") {
+            const stderr = result.stderr ?? ""
+            const isFileMissing = stderr.includes("Cannot find module") || stderr.includes("MODULE_NOT_FOUND")
+            const hint = isFileMissing
+              ? `\n      Hint: hook file not found — run ${c.cyan("npx claude-setup init")} to reinstall it.`
+              : ""
             statusLine("⚠️ ", label, c.yellow(
               `FAIL (exit ${result.exitCode}, ${result.timeMs}ms)\n` +
-              `      Command: ${hook.command.slice(0, 50)}\n` +
-              `      ${result.stderr ? `stderr: ${result.stderr.slice(0, 100)}` : ""}`
+              `      Command: ${hook.command.slice(0, 60)}\n` +
+              `      ${stderr ? `stderr: ${stderr.slice(0, 200)}` : ""}${hint}`
             ))
             counts.warnings++
           } else if (result.status === "permission") {
@@ -435,14 +440,14 @@ export async function runDoctor(verbose = false, fix = false, testHooks = false)
           counts.healthy++
         } else if (isInTemplate) {
           statusLine("🔴", `\${${v}}`, c.red(
-            `NOT SET — MCP server will fail at runtime.\n` +
+            `NOT SET — MCP server will fail at runtime and won't appear in /mcp.\n` +
             `      Documented in .env.example but not loaded into environment.\n` +
             `      Fix: set ${v} in your shell or .env file, then restart Claude Code.`
           ))
           counts.critical++
         } else {
           statusLine("🔴", `\${${v}}`, c.red(
-            `NOT SET — MCP server will fail at runtime.\n` +
+            `NOT SET — MCP server will fail at runtime and won't appear in /mcp.\n` +
             `      Missing from both environment and .env.example.\n` +
             `      Fix: add ${v} to .env.example and set its value in your shell or .env file.`
           ))

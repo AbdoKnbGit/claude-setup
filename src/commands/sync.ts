@@ -196,9 +196,11 @@ export async function runSync(opts: { dryRun?: boolean; budget?: number } = {}):
     }
   }
 
-  if (!diff.added.length && !diff.changed.length && !diff.deleted.length && !oobDetected) {
+  const hasChanges = diff.added.length > 0 || diff.changed.length > 0 || diff.deleted.length > 0 || oobDetected
+
+  if (!hasChanges) {
     console.log(`${c.green("✅")} No changes since ${c.dim(lastRun.at)}. Setup is current.`)
-    return
+    // Still regenerate the command file so /stack-sync self-refresh always gets an up-to-date "no changes" state
   }
 
   const state = await readState()
@@ -241,46 +243,46 @@ export async function runSync(opts: { dryRun?: boolean; budget?: number } = {}):
   await updateManifest("sync", collected, { estimatedTokens: tokens, estimatedCost: cost })
   installTokenHook()
 
-  // Feature A: Create snapshot node
+  // Create snapshot node — collectFilesForSnapshot scans all .claude/ automatically
   const allPaths = [
     ...Object.keys(collected.configs),
     ...collected.source.map(s => s.path),
-    ...claudeInternalFiles.map(f => f.path),
   ]
   const snapshotFiles = collectFilesForSnapshot(cwd, allPaths)
-  const changeCount = diff.added.length + diff.changed.length + diff.deleted.length
   createSnapshot(cwd, "sync", snapshotFiles, {
     summary: `+${diff.added.length} added, ~${diff.changed.length} modified, -${diff.deleted.length} deleted`,
   })
 
-  console.log(`
+  if (hasChanges) {
+    console.log(`
 Changes since ${c.dim(lastRun.at)}:
   ${c.green(`+${diff.added.length}`)} added  ${c.yellow(`~${diff.changed.length}`)} modified  ${c.red(`-${diff.deleted.length}`)} deleted
 
-${c.green("✅")} Ready. Open Claude Code and run:
-   ${c.cyan("/stack-sync")}
-  `)
-
-  // Token cost display
-  section("Token cost")
-  const realSummary = formatRealCostSummary(cwd)
-  if (realSummary) {
-    console.log(realSummary)
-    console.log(`  ${c.dim(`This command estimate: ~${tokens.toLocaleString()} input tokens (${formatCost(cost)})`)}`)
-  } else {
-    console.log(`  ~${tokens.toLocaleString()} input tokens (${c.dim(`${formatCost(cost)}`)})`)
-    console.log(`  ${c.dim("Estimates only — real costs tracked after first Claude Code session")}`)
+${c.green("✅")} Run ${c.cyan("/stack-sync")} in Claude Code to apply.
+    `)
   }
 
-  // Optimization hints
-  const runs = manifest.runs.map(r => ({ command: r.command, estimatedTokens: r.estimatedTokens }))
-  const hints = generateHints(runs, tokens, config.tokenBudget.sync)
-  if (hints.length) {
-    section("Optimization hints")
-    for (const hint of hints) {
-      console.log(`  ${c.yellow("💡")} ${hint}`)
+  if (hasChanges) {
+    // Token cost display
+    section("Token cost")
+    const realSummary = formatRealCostSummary(cwd)
+    if (realSummary) {
+      console.log(realSummary)
+    } else {
+      console.log(`  ~${tokens.toLocaleString()} input tokens (${c.dim(`${formatCost(cost)}`)})`)
+      console.log(`  ${c.dim("Estimates only — real costs tracked after first Claude Code session")}`)
     }
-  }
 
-  console.log("")
+    // Optimization hints
+    const runs = manifest.runs.map(r => ({ command: r.command, estimatedTokens: r.estimatedTokens }))
+    const hints = generateHints(runs, tokens, config.tokenBudget.sync)
+    if (hints.length) {
+      section("Optimization hints")
+      for (const hint of hints) {
+        console.log(`  ${c.yellow("💡")} ${hint}`)
+      }
+    }
+
+    console.log("")
+  }
 }

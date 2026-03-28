@@ -422,8 +422,8 @@ export function readProjectSessions(projectCwd: string): SessionSummary[] {
     // Encode the CWD the way Claude Code does, then exact-match against project dirs.
     // This is the only reliable cross-platform approach — decoding is lossy when
     // folder names contain hyphens (e.g. "Claude-code-documentation").
-    //   Windows: C:\Users\ok\Desktop\my-app  →  C--Users-ok-Desktop-my-app
-    //   Unix:    /Users/ok/dev/my-app         →  -Users-ok-dev-my-app
+    //   Windows: C:\Users\alice\Desktop\my-app  →  C--Users-alice-Desktop-my-app
+    //   Unix:    /Users/alice/dev/my-app         →  -Users-alice-dev-my-app
     const encodedCwd = projectCwd
       .replace(/\\/g, "/")       // normalize backslashes to forward slashes
       .replace(/:\//g, "--")     // drive letter: C:/ → C--

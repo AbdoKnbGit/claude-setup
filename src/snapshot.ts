@@ -13,8 +13,8 @@
  * Zero API calls. All local filesystem operations.
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs"
-import { join, dirname } from "path"
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, statSync } from "fs"
+import { join, dirname, extname } from "path"
 import { createHash } from "crypto"
 
 const SNAPSHOTS_DIR = ".claude/snapshots"
@@ -27,6 +27,7 @@ export interface SnapshotNode {
   input?: string
   changedFiles: string[]
   summary: string
+  fullSnapshot?: boolean  // true = node stores complete project state (not just deltas)
 }
 
 export interface SnapshotTimeline {
@@ -115,6 +116,7 @@ export function createSnapshot(
     ...(opts.input ? { input: opts.input } : {}),
     changedFiles: changedFiles.map(f => f.path),
     summary: opts.summary ?? `${changedFiles.length} file(s) captured`,
+    fullSnapshot: true,
   }
 
   timeline.nodes.push(node)
@@ -125,9 +127,14 @@ export function createSnapshot(
 }
 
 /**
- * Build the cumulative file state at a given node by accumulating
- * all files from node 0 through the target node. Later nodes override
- * earlier ones (last-write-wins), giving the full state at that point.
+ * Build the complete file state at a given node.
+ *
+ * Full snapshots (fullSnapshot: true) store the entire project state — used directly.
+ * Legacy delta snapshots accumulate from node 0 to target (last-write-wins).
+ *
+ * Why the distinction matters: with delta snapshots, if a file was deleted between A→B,
+ * it would wrongly appear in cumulative state at B (still present from A). Full snapshots
+ * avoid this because the target node's data IS the complete truth at that point.
  */
 export function buildCumulativeState(
   cwd: string,
@@ -137,6 +144,15 @@ export function buildCumulativeState(
   const targetIndex = timeline.nodes.findIndex(n => n.id === nodeId)
   if (targetIndex < 0) return null
 
+  const targetNode = timeline.nodes[targetIndex]
+
+  // Full snapshot: the node's own data is already the complete project state
+  if (targetNode.fullSnapshot) {
+    const data = readNodeData(cwd, nodeId)
+    return data ? { ...data.files } : null
+  }
+
+  // Legacy delta snapshot: accumulate from beginning to target
   const cumulative: Record<string, string> = {}
   for (let i = 0; i <= targetIndex; i++) {
     const data = readNodeData(cwd, timeline.nodes[i].id)
@@ -160,14 +176,13 @@ export function restoreSnapshot(
   cwd: string,
   nodeId: string,
   timeline?: SnapshotTimeline
-): { restored: string[]; failed: string[]; stale: string[] } {
-  // If no timeline provided, read it
+): { restored: string[]; failed: string[]; deleted: string[]; stale: string[] } {
   const tl = timeline ?? readTimeline(cwd)
 
-  // Build cumulative state up to this node
   const cumulativeFiles = buildCumulativeState(cwd, nodeId, tl)
-  if (!cumulativeFiles) return { restored: [], failed: [nodeId], stale: [] }
+  if (!cumulativeFiles) return { restored: [], failed: [nodeId], deleted: [], stale: [] }
 
+  // Step 1: Write all snapshot files to disk
   const restored: string[] = []
   const failed: string[] = []
 
@@ -183,30 +198,29 @@ export function restoreSnapshot(
     }
   }
 
-  // Detect files that exist now but weren't in the cumulative state
-  // These are files added in later snapshots that may be stale
+  // Step 2: Scan the project NOW (using the just-restored .gitignore)
+  // and delete any file that isn't part of the snapshot.
+  // This makes restore a true time machine — the directory looks exactly
+  // like it did at this snapshot.
+  const rules = loadGitignoreRules(cwd) // uses restored .gitignore if it was snapshotted
+  const currentFiles: Array<{ path: string; content: string }> = []
+  scanProject(cwd, "", rules, currentFiles)
+
+  const deleted: string[] = []
   const stale: string[] = []
-  const targetIndex = tl.nodes.findIndex(n => n.id === nodeId)
-  if (targetIndex >= 0) {
-    const laterNodes = tl.nodes.slice(targetIndex + 1)
-    const allLaterFiles = new Set<string>()
-    for (const node of laterNodes) {
-      const nodeData = readNodeData(cwd, node.id)
-      if (nodeData) {
-        for (const fp of Object.keys(nodeData.files)) {
-          allLaterFiles.add(fp)
-        }
-      }
-    }
-    // Files in later snapshots but NOT in cumulative state at target
-    for (const filePath of allLaterFiles) {
-      if (!cumulativeFiles[filePath] && existsSync(join(cwd, filePath))) {
-        stale.push(filePath)
-      }
+
+  for (const f of currentFiles) {
+    if (cumulativeFiles[f.path]) continue // in snapshot — already restored
+    // Not in snapshot → delete
+    try {
+      unlinkSync(join(cwd, f.path))
+      deleted.push(f.path)
+    } catch {
+      stale.push(f.path) // couldn't delete (permissions etc.)
     }
   }
 
-  return { restored, failed, stale }
+  return { restored, failed, deleted, stale }
 }
 
 /**
@@ -270,39 +284,147 @@ export function compareSnapshots(
   return { onlyInA, onlyInB, changed, identical }
 }
 
+// ── Full-project file scanner (git-like coverage) ──────────────────────
+
+const MAX_FILE_BYTES = 1024 * 1024 // 1 MB per file
+
+/** Directory names always excluded (regardless of location in tree) */
+const EXCLUDE_DIRS = new Set([
+  ".git", "node_modules",
+  "dist", "build", "out", ".next", ".nuxt", ".svelte-kit", ".remix",
+  "__pycache__", "target", ".gradle", ".mvn", "vendor",
+  "coverage", ".nyc_output", ".c8",
+  ".cache", ".parcel-cache", ".turbo", ".vercel", ".netlify",
+  "tmp", "temp", ".tmp",
+])
+
+/** Relative paths always excluded */
+const EXCLUDE_REL = new Set([
+  ".claude/snapshots",
+  ".claude/token-usage.json",
+  ".claude/claude-setup.json",
+])
+
+/** Filenames always excluded (sensitive or OS noise) */
+const EXCLUDE_NAMES = new Set([
+  ".env", ".DS_Store", "Thumbs.db", "desktop.ini",
+])
+
+/** Binary file extensions — skip */
+const BINARY_EXT = new Set([
+  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".ico", ".avif",
+  ".pdf",
+  ".zip", ".tar", ".gz", ".bz2", ".7z", ".rar", ".xz",
+  ".exe", ".dll", ".so", ".dylib", ".bin",
+  ".wasm",
+  ".woff", ".woff2", ".ttf", ".otf", ".eot",
+  ".mp3", ".mp4", ".wav", ".ogg", ".flac", ".avi", ".mov", ".mkv",
+  ".class", ".jar", ".war",
+  ".pyc", ".pyo", ".pyd",
+  ".o", ".a", ".lib",
+  ".db", ".sqlite", ".sqlite3",
+])
+
+interface GitignoreRule {
+  negated: boolean
+  dirOnly: boolean
+  regex: RegExp
+}
+
+function parseGitignoreLine(line: string): GitignoreRule | null {
+  const trimmed = line.trim()
+  if (!trimmed || trimmed.startsWith("#")) return null
+  let pattern = trimmed
+  const negated = pattern.startsWith("!")
+  if (negated) pattern = pattern.slice(1)
+  const anchored = pattern.startsWith("/")
+  if (anchored) pattern = pattern.slice(1)
+  const dirOnly = pattern.endsWith("/")
+  if (dirOnly) pattern = pattern.slice(0, -1)
+  // Convert glob to regex
+  let regexStr = ""
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i]
+    if (ch === "*" && pattern[i + 1] === "*") {
+      if (pattern[i + 2] === "/") { regexStr += "(?:.+/)?"; i += 2 }
+      else { regexStr += ".*"; i++ }
+    } else if (ch === "*") { regexStr += "[^/]*"
+    } else if (ch === "?") { regexStr += "[^/]"
+    } else if (".+^${}()|[]\\".includes(ch)) { regexStr += "\\" + ch
+    } else { regexStr += ch }
+  }
+  const full = (anchored || pattern.includes("/"))
+    ? `^${regexStr}(?:/.*)?$`
+    : `(?:^|/)${regexStr}(?:/.*)?$`
+  try { return { negated, dirOnly, regex: new RegExp(full) } } catch { return null }
+}
+
+function loadGitignoreRules(cwd: string): GitignoreRule[] {
+  try {
+    return readFileSync(join(cwd, ".gitignore"), "utf8")
+      .split("\n").map(parseGitignoreLine)
+      .filter((r): r is GitignoreRule => r !== null)
+  } catch { return [] }
+}
+
+function matchesAnyRule(relPath: string, isDir: boolean, rules: GitignoreRule[]): boolean {
+  let excluded = false
+  for (const rule of rules) {
+    if (rule.dirOnly && !isDir) continue
+    if (rule.regex.test(relPath)) excluded = !rule.negated
+  }
+  return excluded
+}
+
+function tryReadText(absPath: string): string | null {
+  try {
+    const st = statSync(absPath)
+    if (!st.isFile() || st.size > MAX_FILE_BYTES) return null
+    const content = readFileSync(absPath, "utf8")
+    if (content.includes("\0")) return null // binary
+    return content
+  } catch { return null }
+}
+
+function scanProject(
+  cwd: string,
+  relBase: string,
+  rules: GitignoreRule[],
+  out: Array<{ path: string; content: string }>
+): void {
+  const abs = relBase ? join(cwd, relBase) : cwd
+  try {
+    for (const entry of readdirSync(abs, { withFileTypes: true })) {
+      const relPath = relBase ? `${relBase}/${entry.name}` : entry.name
+      const isDir = entry.isDirectory()
+      // Hard excludes
+      if (isDir && EXCLUDE_DIRS.has(entry.name)) continue
+      if (EXCLUDE_REL.has(relPath) || relPath.startsWith(".claude/snapshots/")) continue
+      if (!isDir && EXCLUDE_NAMES.has(entry.name)) continue
+      if (!isDir && BINARY_EXT.has(extname(entry.name).toLowerCase())) continue
+      // Gitignore
+      if (matchesAnyRule(relPath, isDir, rules)) continue
+      if (isDir) {
+        scanProject(cwd, relPath, rules, out)
+      } else {
+        const content = tryReadText(join(cwd, relPath))
+        if (content !== null) out.push({ path: relPath, content })
+      }
+    }
+  } catch { /* skip unreadable */ }
+}
+
 /**
- * Collect current file contents for snapshot.
- * Reads tracked files + CLI-managed files from disk.
+ * Collect ALL project files for snapshot — full git-like coverage.
+ * Respects .gitignore + hard exclusions (node_modules, .git, binaries, .env).
+ * The trackedPaths param is kept for API compat but ignored.
  */
 export function collectFilesForSnapshot(
   cwd: string,
-  trackedPaths: string[]
+  _trackedPaths: string[]
 ): Array<{ path: string; content: string }> {
-  const files: Array<{ path: string; content: string }> = []
-  const seen = new Set<string>()
-
-  for (const filePath of trackedPaths) {
-    if (filePath === "__digest__" || filePath === ".env") continue
-    if (seen.has(filePath)) continue
-    const fullPath = join(cwd, filePath)
-    if (!existsSync(fullPath)) continue
-    try {
-      files.push({ path: filePath, content: readFileSync(fullPath, "utf8") })
-      seen.add(filePath)
-    } catch { /* skip unreadable */ }
-  }
-
-  // Also capture CLI-managed files if not already included
-  const managed = ["CLAUDE.md", ".mcp.json", ".claude/settings.json"]
-  for (const m of managed) {
-    if (seen.has(m)) continue
-    const fullPath = join(cwd, m)
-    if (!existsSync(fullPath)) continue
-    try {
-      files.push({ path: m, content: readFileSync(fullPath, "utf8") })
-      seen.add(m)
-    } catch { /* skip */ }
-  }
-
-  return files
+  const rules = loadGitignoreRules(cwd)
+  const out: Array<{ path: string; content: string }> = []
+  scanProject(cwd, "", rules, out)
+  return out
 }
