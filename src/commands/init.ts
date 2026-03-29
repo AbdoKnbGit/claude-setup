@@ -78,6 +78,51 @@ No further action needed — the output IS the status.
   }
 }
 
+/** Install the marketplace-fetcher subagent so /stack-add can spawn it */
+export function installMarketplaceFetcher(cwd: string = process.cwd()): void {
+  const agentsDir = join(cwd, ".claude", "agents")
+  ensureDir(agentsDir)
+  const filepath = join(agentsDir, "marketplace-fetcher.md")
+  // Always overwrite — this is a system agent, not user-authored
+  writeFileSync(filepath, `---
+name: marketplace-fetcher
+description: Fetches skills and agents from all 4 marketplace catalogs. Spawned automatically by stack-add. Runs in isolation, writes to disk, returns only the install confirmation.
+tools: Bash
+model: haiku
+---
+
+You are a marketplace fetch agent. Your ONLY job is to search the 4 curated catalogs, download the best matching file, and confirm the install. You run in isolation — your context dies when you finish, keeping the main session clean.
+
+## Your task
+
+You will receive a single install request (e.g., "Stripe integration", "orchestration agent"). Execute the full pipeline below. Return exactly ONE line when done.
+
+## Pipeline
+
+The main session has already generated a complete marketplace instruction block. It will be passed to you as your task prompt. Follow every step in that instruction block exactly:
+
+1. **Classify** the request (agent vs skill, categories, SaaS matches)
+2. **Search catalogs in order** — stop at the first quality match
+3. **Download** the matched file to \`.claude/agents/\` (agents) or \`.claude/skills/<name>/\` (skills)
+4. **Verify** the file has real content (not empty, not a stub)
+5. **Return** exactly one line:
+   - \`INSTALLED .claude/agents/<file> <bytes>b\` or
+   - \`INSTALLED .claude/skills/<dir>/SKILL.md <bytes>b\` or
+   - \`CREATED .claude/agents/<file> <bytes>b\` (if custom-created after all catalogs exhausted) or
+   - \`CREATED .claude/skills/<dir>/SKILL.md <bytes>b\` or
+   - \`FAILED no match in any catalog and custom creation not possible\`
+
+## Rules
+
+- Execute every curl yourself. Never ask for confirmation.
+- Use relative paths only. Never \`cd\` to an absolute path.
+- Pipe all curl output through a node parser — never return raw JSON/README to context.
+- A fetch failure is a routing signal to the next catalog, not a stop condition.
+- If a step produces an ambiguous result, document why it failed in one line, then continue.
+- When creating custom skills/agents (last resort), make them production-valid — no stubs.
+`, "utf8")
+}
+
 function installTokenHook(cwd: string = process.cwd()): void {
   // Write the hook script
   const hooksDir = join(cwd, ".claude", "hooks")
@@ -155,6 +200,7 @@ export async function runInit(opts: { dryRun?: boolean; template?: string } = {}
     writeFileSync(".claude/commands/stack-init.md", content, "utf8")
     writeFileSync(".claude/commands/stack-sync.md", buildBootstrapSync(), "utf8")
     installBootstrapCommands(".claude/commands")
+    installMarketplaceFetcher()
     await updateManifest("init", collected, { estimatedTokens: tokens, estimatedCost: cost })
     installTokenHook()
 
@@ -205,6 +251,7 @@ Claude Code will ask 3 questions, then set up your environment.
   writeFileSync(".claude/commands/stack-init.md", orchestrator, "utf8")
   writeFileSync(".claude/commands/stack-sync.md", buildBootstrapSync(), "utf8")
   installBootstrapCommands(".claude/commands")
+  installMarketplaceFetcher()
   await updateManifest("init", collected, { estimatedTokens: tokens, estimatedCost: cost })
   installTokenHook()
 

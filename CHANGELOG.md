@@ -1,5 +1,29 @@
 # Changelog
 
+## v2.0.0 — 2026-03-29
+
+### Searching is now cheap and fast
+
+Adding skills and agents used to flood your session with massive catalog data that stuck around forever, silently burning through tokens on every follow-up message. Now, when you `/stack-add` something, a lightweight helper goes off on its own, searches all 4 catalogs, downloads the best match, and comes back with a single line — "installed, here's the path." All that catalog noise never touches your conversation. Sessions that used to eat through millions of tokens now barely register.
+
+### Doesn't give up after one miss
+
+Previously, if the first category it tried came back empty, it would skip the entire source and move on. Now it tries the related categories nearby before giving up — an orchestration request that misses in meta-orchestration will still check infrastructure and quality-security before leaving. The full README listing is also searched as a last resort before moving to the next catalog.
+
+### Actually runs the fallback searches
+
+Three of the fallback search paths were written as plain English descriptions instead of actual commands. Claude would read them, understand the intent, and then skip them because there was nothing concrete to execute. All three are now real command pipelines that fetch, parse, filter, and download — just like the primary paths.
+
+### Works on every OS without surprises
+
+Commands with `!` in them would silently explode on many systems because the shell tried to interpret them as history references before they ever ran. Every occurrence has been rewritten to avoid that. Absolute paths like `cd C:\Users\...` that broke on Windows bash are gone — everything uses relative paths now, since the tool already runs in the right directory.
+
+### Doesn't quit early on ambiguous results
+
+Each step in the search pipeline used to say "only get here if the previous step found nothing," which gave the system permission to bail on anything unclear. Now it has to explain *why* the previous step failed before moving on — no more silent early exits when a result is just slightly ambiguous.
+
+---
+
 ## v1.1.9 — 2026-03-29
 
 ### Fixed: marketplace was silently broken

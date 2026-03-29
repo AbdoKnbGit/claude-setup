@@ -30,7 +30,31 @@ Skills: {{SKILLS_LIST}} | Commands: {{COMMANDS_LIST}}
 
 ---
 
+## Marketplace search — AUTOMATICALLY spawn the marketplace-fetcher subagent
+
+**MANDATORY:** For any request that involves installing a skill, agent, plugin, or integration,
+you MUST use the Agent tool to spawn the `marketplace-fetcher` subagent. Do NOT run catalog
+fetches in your own context. Do NOT ask the user whether to spawn — just do it.
+
+**How to spawn:** Use the Agent tool with these parameters:
+- `description`: "Fetch and install: {{USER_INPUT}}"
+- `prompt`: Copy the ENTIRE marketplace instructions block below (between the `BEGIN` and `END` markers) as the subagent's task prompt.
+
+The subagent runs in isolation on Haiku: it fetches catalogs, parses READMEs, downloads files to disk,
+and returns exactly one confirmation line. Its context dies when it finishes — zero catalog bloat
+enters your session. This cuts API calls from ~113 to ~6 and cache-read tokens from ~4.8M to ~180K.
+
+**Only skip the subagent** if the request is purely a single-file edit (add one MCP server to .mcp.json,
+add a hook to settings.json, or append to CLAUDE.md) with no catalog search needed.
+
+--- BEGIN MARKETPLACE INSTRUCTIONS (pass this entire block to the subagent) ---
+
 {{MARKETPLACE_INSTRUCTIONS}}
+
+--- END MARKETPLACE INSTRUCTIONS ---
+
+After the subagent returns its one-line result, continue to the post-install steps below.
+If the subagent returned `FAILED`, create a production-quality custom skill/agent yourself.
 
 ---
 

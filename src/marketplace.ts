@@ -57,6 +57,36 @@ export const SAAS_PACKS = [
   "Playwright", "Tavily", "Stripe", "Slack", "Linear", "Notion",
 ] as const
 
+// ── Adjacent category map (for fallback when primary SKIP) ─────────────
+
+const ADJACENT_CATEGORIES: Record<string, string[]> = {
+  "01-core-development":     ["02-language-specialists", "06-developer-experience"],
+  "02-language-specialists":  ["01-core-development",     "06-developer-experience"],
+  "03-infrastructure":        ["04-quality-security",     "09-meta-orchestration"],
+  "04-quality-security":      ["03-infrastructure",       "01-core-development"],
+  "05-data-ai":               ["10-research-analysis",    "07-specialized-domains"],
+  "06-developer-experience":  ["01-core-development",     "02-language-specialists"],
+  "07-specialized-domains":   ["05-data-ai",              "08-business-product"],
+  "08-business-product":      ["07-specialized-domains",  "09-meta-orchestration"],
+  "09-meta-orchestration":    ["03-infrastructure",       "04-quality-security"],
+  "10-research-analysis":     ["05-data-ai",              "07-specialized-domains"],
+}
+
+/** Expand target categories with their adjacent neighbors, deduplicating */
+function expandWithAdjacent(targets: string[]): string[] {
+  const seen = new Set(targets)
+  const adjacent: string[] = []
+  for (const cat of targets) {
+    for (const adj of (ADJACENT_CATEGORIES[cat] ?? [])) {
+      if (!seen.has(adj)) {
+        seen.add(adj)
+        adjacent.push(adj)
+      }
+    }
+  }
+  return adjacent
+}
+
 // ── Agent detection keywords ────────────────────────────────────────────
 
 const AGENT_KEYWORDS = [
@@ -333,6 +363,8 @@ function buildAgentPipeline(
     : ["09-meta-orchestration"]
 
   // ── STEP 1: VoltAgent/awesome-claude-code-subagents ──────────────
+  const adjacentCategories = expandWithAdjacent(targetCategories)
+
   lines.push(`---`)
   lines.push(``)
   lines.push(`### STEP 1 — VoltAgent subagents (PRIMARY source for agents — 127+ specialized agents)`)
@@ -340,27 +372,43 @@ function buildAgentPipeline(
   lines.push(`This is the preferred source for anything agent-shaped. 10 categories, 127+ agents.`)
   lines.push(`If a match is found here, install to \`.claude/agents/\` (NOT .claude/skills/).`)
   lines.push(``)
-  lines.push(`**1a. List agent files in the matched categories:**`)
-  lines.push(`If any curl below fails, skip to the next category or STEP 2 immediately.`)
+  lines.push(`**1a. List agent files in the primary categories:**`)
   lines.push(``)
 
   for (const cat of targetCategories) {
     lines.push(`\`\`\`bash`)
-    lines.push(`# Category: ${cat}`)
+    lines.push(`# Primary category: ${cat}`)
     lines.push(`curl -sf \${GITHUB_TOKEN:+-H "Authorization: token \$GITHUB_TOKEN"} "${VOLTAGENT_SUBAGENTS_API}/${cat}" \\`)
     lines.push(`  | node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8'));` +
-      `if(!Array.isArray(d)){console.log('SKIP');process.exit(0)}` +
-      `d.filter(x=>x.name.endsWith('.md')&&x.name!=='README.md').forEach(x=>console.log(x.name))"`)
+      `if(Array.isArray(d)===false){console.log('SKIP');process.exit(0)}` +
+      `d.filter(x=>x.name.endsWith('.md')&&(x.name==='README.md')===false).forEach(x=>console.log(x.name))"`)
     lines.push(`\`\`\``)
     lines.push(``)
   }
 
-  lines.push(`**1b. From the file list above, pick the BEST match for "${input}".**`)
+  if (adjacentCategories.length > 0) {
+    lines.push(`**1b. If ALL primary categories above returned SKIP, try adjacent categories:**`)
+    lines.push(`Do NOT skip this step. A SKIP in the primary category does NOT mean VoltAgent has no match.`)
+    lines.push(``)
+
+    for (const cat of adjacentCategories) {
+      lines.push(`\`\`\`bash`)
+      lines.push(`# Adjacent category: ${cat}`)
+      lines.push(`curl -sf \${GITHUB_TOKEN:+-H "Authorization: token \$GITHUB_TOKEN"} "${VOLTAGENT_SUBAGENTS_API}/${cat}" \\`)
+      lines.push(`  | node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8'));` +
+        `if(Array.isArray(d)===false){console.log('SKIP');process.exit(0)}` +
+        `d.filter(x=>x.name.endsWith('.md')&&(x.name==='README.md')===false).forEach(x=>console.log(x.name))"`)
+      lines.push(`\`\`\``)
+      lines.push(``)
+    }
+  }
+
+  lines.push(`**1c. From ALL file lists above (primary + adjacent), pick the BEST match for "${input}".**`)
   lines.push(`Match by name and relevance. If multiple candidates exist, pick the closest one.`)
   lines.push(``)
-  lines.push(`**1c. Download the matched agent file (3-stage resolution — this is stage 3):**`)
+  lines.push(`**1d. Download the matched agent file:**`)
   lines.push(`\`\`\`bash`)
-  lines.push(`# Replace CATEGORY and AGENT_FILE with actual values from 1a/1b`)
+  lines.push(`# Replace CATEGORY and AGENT_FILE with actual values from 1a-1c`)
   lines.push(`CATEGORY="${targetCategories[0]}"`)
   lines.push(`AGENT_FILE="matched-agent.md"`)
   lines.push(`mkdir -p ".claude/agents"`)
@@ -368,19 +416,35 @@ function buildAgentPipeline(
   lines.push(`  -o ".claude/agents/\${AGENT_FILE}"`)
   lines.push(`\`\`\``)
   lines.push(``)
-  lines.push(`**1d. Verify the file has real content (Rule 7 — must not be empty):**`)
+  lines.push(`**1e. Verify the file has real content (rule 7 — must not be empty):**`)
   lines.push(`\`\`\`bash`)
-  lines.push(`# File must have frontmatter (---) and body content`)
   lines.push(`head -3 ".claude/agents/\${AGENT_FILE}"`)
   lines.push(`wc -l ".claude/agents/\${AGENT_FILE}"`)
   lines.push(`\`\`\``)
-  lines.push(`If the file is empty or just frontmatter with no body: delete it, log the failure, continue to STEP 2.`)
+  lines.push(`If the file is empty or just frontmatter with no body: delete it, log the failure.`)
   lines.push(`If the file has real content: agent is installed. Skip to "Install result format" below.`)
   lines.push(``)
-  lines.push(`**README-driven fallback:** If a category listing returns a README.md instead of agent files,`)
-  lines.push(`parse the README for entries with links. Entries may point to external repos — follow them`)
-  lines.push(`using the universal URL resolution rules (extract {owner}/{repo} dynamically from the link).`)
-  lines.push(`Navigate the foreign repo to locate the agent .md file and download it.`)
+  lines.push(`**1f. README-driven fallback — if ALL category listings (primary + adjacent) returned SKIP:**`)
+  lines.push(`You MUST try this before moving to STEP 2. The README contains the full agent listing.`)
+  lines.push(``)
+  lines.push(`\`\`\`bash`)
+  lines.push(`# Step 1: Fetch the VoltAgent subagents README`)
+  lines.push(`curl -sf "https://raw.githubusercontent.com/${VOLTAGENT_SUBAGENTS_REPO}/main/README.md" \\`)
+  lines.push(`  | node -e "const t=require('fs').readFileSync(0,'utf8');` +
+    `const re=/\\[([^\\]]+)\\]\\(([^)]+)\\)/g;let m;const r=[];` +
+    `while((m=re.exec(t))!==null){if(m[2].includes('.md')||m[2].includes('github.com'))r.push(m[1]+' | '+m[2])}` +
+    `r.slice(0,15).forEach(x=>console.log(x))"`)
+  lines.push(`\`\`\``)
+  lines.push(``)
+  lines.push(`\`\`\`bash`)
+  lines.push(`# Step 2: Pick the best entry for "${input}" from the list above.`)
+  lines.push(`# Extract the URL, convert github.com URLs to raw.githubusercontent.com (rule 2).`)
+  lines.push(`# Step 3: Download the resolved file`)
+  lines.push(`RESOLVED_URL="raw-url-from-step-2"`)
+  lines.push(`mkdir -p ".claude/agents"`)
+  lines.push(`curl -sf "\${RESOLVED_URL}" -o ".claude/agents/matched-agent.md"`)
+  lines.push(`\`\`\``)
+  lines.push(`Verify content (rule 7). If empty: delete and continue to STEP 2.`)
   lines.push(``)
 
   // ── STEP 2: jeremylongshore community skills (fallback for agents) ─
@@ -388,7 +452,7 @@ function buildAgentPipeline(
   lines.push(``)
   lines.push(`### STEP 2 — Community skills catalog (fallback — 416 plugins)`)
   lines.push(``)
-  lines.push(`Only reach here if STEP 1 found no match.`)
+  lines.push(`**Before continuing:** Document in one line why STEP 1 produced no result.`)
   lines.push(`Search for agent-like skills in the community catalog.`)
   lines.push(`If curl fails, skip to STEP 3.`)
   lines.push(``)
@@ -399,7 +463,7 @@ function buildAgentPipeline(
   lines.push(``)
   lines.push(`### STEP 3 — ComposioHQ service integrations (1000+ skills — fallback)`)
   lines.push(``)
-  lines.push(`Only reach here if STEP 1 and 2 found no match.`)
+  lines.push(`**Before continuing:** Document in one line why STEPs 1 and 2 produced no result.`)
   lines.push(`Strong for API and SaaS automation. Skills live in per-directory SKILL.md files.`)
   lines.push(`If curl fails, skip to STEP 4.`)
   lines.push(``)
@@ -470,14 +534,14 @@ function buildSkillPipeline(
   lines.push(``)
   lines.push(`### STEP 3 — VoltAgent curated agent skills (production-proven)`)
   lines.push(``)
-  lines.push(`Only reach here if STEP 2 found no match.`)
+  lines.push(`**Before continuing:** Document in one line why STEP 2 produced no result.`)
   lines.push(`Curated real-world skills from engineering teams. If curl fails, skip to STEP 4.`)
   lines.push(``)
   lines.push(`\`\`\`bash`)
   lines.push(`curl -sf \${GITHUB_TOKEN:+-H "Authorization: token \$GITHUB_TOKEN"} "${VOLTAGENT_SKILLS_API}" \\`)
   lines.push(`  | node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8'));` +
-    `if(!Array.isArray(d)){console.log('SKIP');process.exit(0)}` +
-    `d.filter(x=>x.type==='dir'&&!x.name.startsWith('.')).forEach(x=>console.log(x.name))"`)
+    `if(Array.isArray(d)===false){console.log('SKIP');process.exit(0)}` +
+    `d.filter(x=>x.type==='dir'&&x.name.startsWith('.')===false).forEach(x=>console.log(x.name))"`)
   lines.push(`\`\`\``)
   lines.push(`If any directory name matches "${input}", fetch its SKILL.md:`)
   lines.push(`\`\`\`bash`)
@@ -488,10 +552,26 @@ function buildSkillPipeline(
   lines.push(`\`\`\``)
   lines.push(`Verify content is real (not empty). If empty, delete and continue.`)
   lines.push(``)
-  lines.push(`**README-driven fallback:** If the API returns a single file (README.md) instead of a directory listing,`)
-  lines.push(`parse its markdown sections for entries matching "${input}". Entries may link to external repos owned by`)
-  lines.push(`different authors — follow those links using the universal URL resolution rules above (extract {owner}/{repo}`)
-  lines.push(`dynamically, never hardcode). Navigate the foreign repo to find the installable .md file and download it.`)
+  lines.push(`**README-driven fallback:** If the API listing above returned SKIP or no match, fetch the README:`)
+  lines.push(``)
+  lines.push(`\`\`\`bash`)
+  lines.push(`# Step 1: Fetch the VoltAgent skills README`)
+  lines.push(`curl -sf "https://raw.githubusercontent.com/${VOLTAGENT_SKILLS_REPO}/main/README.md" \\`)
+  lines.push(`  | node -e "const t=require('fs').readFileSync(0,'utf8');` +
+    `const re=/\\[([^\\]]+)\\]\\(([^)]+)\\)/g;let m;const r=[];` +
+    `while((m=re.exec(t))!==null){if(m[2].includes('SKILL.md')||m[2].includes('github.com'))r.push(m[1]+' | '+m[2])}` +
+    `r.slice(0,10).forEach(x=>console.log(x))"`)
+  lines.push(`\`\`\``)
+  lines.push(``)
+  lines.push(`\`\`\`bash`)
+  lines.push(`# Step 2: Pick the entry best matching "${input}". Resolve the URL (rule 2).`)
+  lines.push(`# Step 3: Download the resolved skill file`)
+  lines.push(`RESOLVED_URL="raw-url-from-step-2"`)
+  lines.push(`SKILL_DIR="matched-skill"`)
+  lines.push(`mkdir -p ".claude/skills/\${SKILL_DIR}"`)
+  lines.push(`curl -sf "\${RESOLVED_URL}" -o ".claude/skills/\${SKILL_DIR}/SKILL.md"`)
+  lines.push(`\`\`\``)
+  lines.push(`Verify content (rule 7). If empty: delete and continue to next STEP.`)
   lines.push(``)
 
   // ── STEP 4: ComposioHQ service integrations ───────────────────────
@@ -499,7 +579,7 @@ function buildSkillPipeline(
   lines.push(``)
   lines.push(`### STEP 4 — ComposioHQ service integrations (1000+ skills)`)
   lines.push(``)
-  lines.push(`Only reach here if STEPs 2+3 found no match.`)
+  lines.push(`**Before continuing:** Document in one line why STEPs 2 and 3 produced no result.`)
   lines.push(`Strong for API/SaaS automation: Gmail, Slack, GitHub, Notion, Stripe, Shopify, etc.`)
   lines.push(`If curl fails, skip to STEP 5.`)
   lines.push(``)
@@ -564,7 +644,16 @@ function buildUniversalRulesBlock(lines: string[]): void {
   lines.push(`- **Uniqueness**: does it duplicate something already installed in .claude/skills/ or .claude/agents/? Deprioritize duplicates.`)
   lines.push(`Install only the highest-scoring candidate. One high-quality tool per task.`)
   lines.push(``)
-  lines.push(`**5. Content verification — never keep stubs:**`)
+  lines.push(`**5. No absolute paths — never \`cd\` before commands:**`)
+  lines.push(`Claude Code already runs in the project working directory. Do NOT prepend \`cd /absolute/path &&\` to any command.`)
+  lines.push(`Use relative paths only (e.g., \`.claude/agents/\`, \`.claude/skills/\`). Absolute paths with backslashes break bash on Windows.`)
+  lines.push(``)
+  lines.push(`**6. Output filtering — cap context cost:**`)
+  lines.push(`Every curl result MUST be piped through a node parser that returns at most 5–15 lines of structured data.`)
+  lines.push(`The raw JSON/README response must NEVER enter the context unfiltered.`)
+  lines.push(`Chain multiple sequential fetch decisions inside a single bash script so they execute as one tool call.`)
+  lines.push(``)
+  lines.push(`**7. Content verification — never keep stubs:**`)
   lines.push(`After downloading any file, verify ALL of these before accepting:`)
   lines.push(`- Not empty (0 bytes)`)
   lines.push(`- Not only YAML frontmatter with no body (just \`---\\nname: x\\n---\` and nothing after)`)
@@ -593,7 +682,7 @@ function buildCommunitySkillsFetchBlock(lines: string[], categoryFilter: string)
   lines.push(`PLUGIN_SOURCE_PATH="plugins/category/plugin-name"`)
   lines.push(`curl -sf \${GITHUB_TOKEN:+-H "Authorization: token \$GITHUB_TOKEN"} "https://api.github.com/repos/${MARKETPLACE_REPO}/contents/\${PLUGIN_SOURCE_PATH}/skills" \\`)
   lines.push(`  | node -e "const a=JSON.parse(require('fs').readFileSync(0,'utf8'));` +
-    `if(!Array.isArray(a)){console.log('NO_SKILLS_DIR');process.exit(0)}` +
+    `if(Array.isArray(a)===false){console.log('NO_SKILLS_DIR');process.exit(0)}` +
     `a.forEach(x=>console.log(x.name))"`)
   lines.push(`\`\`\``)
   lines.push(`If this fails or shows NO_SKILLS_DIR, the plugin has no installable skills — skip.`)
@@ -616,8 +705,8 @@ function buildComposioFetchBlock(lines: string[], input: string): void {
   lines.push(`\`\`\`bash`)
   lines.push(`curl -sf \${GITHUB_TOKEN:+-H "Authorization: token \$GITHUB_TOKEN"} "${COMPOSIO_API}" \\`)
   lines.push(`  | node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8'));` +
-    `if(!Array.isArray(d)){console.log('SKIP');process.exit(0)}` +
-    `d.filter(x=>x.type==='dir'&&!x.name.startsWith('.')).forEach(x=>console.log(x.name))"`)
+    `if(Array.isArray(d)===false){console.log('SKIP');process.exit(0)}` +
+    `d.filter(x=>x.type==='dir'&&x.name.startsWith('.')===false).forEach(x=>console.log(x.name))"`)
   lines.push(`\`\`\``)
   lines.push(``)
   lines.push(`**Stage 2 — Pick the directory that best matches "${input}":**`)
@@ -630,15 +719,27 @@ function buildComposioFetchBlock(lines: string[], input: string): void {
   lines.push(`curl -sf "${COMPOSIO_RAW}/\${SKILL_DIR}/SKILL.md" \\`)
   lines.push(`  -o ".claude/skills/\${SKILL_DIR}/SKILL.md"`)
   lines.push(`\`\`\``)
-  lines.push(`Verify the file has real content (rule 5 above). If empty: delete and move on.`)
+  lines.push(`Verify the file has real content (rule 7 above). If empty: delete and move on.`)
   lines.push(``)
-  lines.push(`**README-driven fallback:** If the directory listing above fails or returns unexpected content,`)
-  lines.push(`fetch the repo's README.md and parse it for sections matching "${input}":`)
+  lines.push(`**README-driven fallback:** If the directory listing above fails or returns unexpected content:`)
+  lines.push(``)
   lines.push(`\`\`\`bash`)
-  lines.push(`# Derive owner/repo dynamically from the catalog source — never hardcode`)
-  lines.push(`curl -sf "https://raw.githubusercontent.com/${COMPOSIO_REPO}/master/README.md" | head -300`)
+  lines.push(`# Step 1: Fetch the ComposioHQ README and extract entries with links`)
+  lines.push(`curl -sf "https://raw.githubusercontent.com/${COMPOSIO_REPO}/master/README.md" \\`)
+  lines.push(`  | node -e "const t=require('fs').readFileSync(0,'utf8');` +
+    `const re=/\\[([^\\]]+)\\]\\(([^)]+)\\)/g;let m;const r=[];` +
+    `while((m=re.exec(t))!==null){if(m[2].includes('SKILL.md')||m[2].includes('github.com'))r.push(m[1]+' | '+m[2])}` +
+    `r.slice(0,10).forEach(x=>console.log(x))"`)
   lines.push(`\`\`\``)
-  lines.push(`Scan sections for entries with external links. Follow those links using universal URL resolution`)
-  lines.push(`(rule 2+3 above) to download from the linked repo, regardless of its owner.`)
+  lines.push(``)
+  lines.push(`\`\`\`bash`)
+  lines.push(`# Step 2: Pick the entry best matching "${input}". Resolve the URL (rule 2).`)
+  lines.push(`# Step 3: Download the resolved skill file`)
+  lines.push(`RESOLVED_URL="raw-url-from-step-2"`)
+  lines.push(`SKILL_DIR="matched-skill"`)
+  lines.push(`mkdir -p ".claude/skills/\${SKILL_DIR}"`)
+  lines.push(`curl -sf "\${RESOLVED_URL}" -o ".claude/skills/\${SKILL_DIR}/SKILL.md"`)
+  lines.push(`\`\`\``)
+  lines.push(`Verify content (rule 7). If empty: delete and continue to next STEP.`)
   lines.push(``)
 }

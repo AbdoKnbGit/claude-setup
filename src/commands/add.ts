@@ -6,6 +6,7 @@ import { updateManifest } from "../manifest.js"
 import { buildAddCommand } from "../builder.js"
 import { estimateTokens, estimateCost } from "../tokens.js"
 import { c } from "../output.js"
+import { installMarketplaceFetcher } from "./init.js"
 
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
@@ -58,6 +59,7 @@ capabilities that need documentation, MCP servers, skills, and hooks together.
   const cost = estimateCost(tokens)
 
   ensureDir(".claude/commands")
+  installMarketplaceFetcher()
   writeFileSync(".claude/commands/stack-add.md", content, "utf8")
   await updateManifest("add", collected, {
     input: userInput,
