@@ -4,6 +4,7 @@ Add to Claude Code setup: "{{USER_INPUT}}"
 
 **CRITICAL: Marketplace-first. Do NOT ask clarifying questions. Search and install automatically.**
 **Execute every curl/install command yourself. The user expects zero-friction automation.**
+**A fetch failure is NOT a stop — it is a routing signal to the next catalog.**
 
 ## Project context
 {{PROJECT_CONTEXT}}
@@ -37,7 +38,20 @@ Skills: {{SKILLS_LIST}} | Commands: {{COMMANDS_LIST}}
 
 Parse the user's request and take ALL applicable actions:
 
-### 1. MCP servers
+### 1. Agents (if request is about agents/orchestration/subagents)
+If the marketplace pipeline installed an agent file to `.claude/agents/`:
+- Verify the file has YAML frontmatter (name, description, tools, model) and a body
+- Document it in CLAUDE.md under a **separate agents section** (not mixed with skills)
+- Agent entry format in CLAUDE.md:
+  ```
+  ## Agents
+  - **agent-name** — what it orchestrates, when to invoke it
+  ```
+
+Agent files live in `.claude/agents/<name>.md` — NOT in `.claude/skills/`.
+Agents and skills are architecturally different and must never be mixed.
+
+### 2. MCP servers
 If the request mentions an external service (database, API, browser, etc.):
 - Check the verified MCP package list below
 - If found: add to `.mcp.json` with OS-correct format (detected: {{DETECTED_OS}})
@@ -125,8 +139,8 @@ MCP format — create new .mcp.json:
 ```
 {{/if}}
 
-### 2. Skills
-If the request mentions skills or capabilities:
+### 3. Skills
+If the request mentions skills or capabilities (NOT agents):
 - Create `.claude/skills/<name>/SKILL.md` with proper frontmatter
 - Use `description:` so Claude knows when to load the skill
 - Search the marketplace for matching pre-built skills (see above)
@@ -141,7 +155,7 @@ description: What this skill does
 Instructions...
 ```
 
-### 3. Hooks
+### 4. Hooks
 If the request implies automated actions (formatting, building, notifications):
 - Add to `.claude/settings.json` using the CORRECT hooks format
 - Verify the tool exists before adding a hook for it
@@ -165,13 +179,11 @@ Correct hooks format:
 }
 ```
 
-### 4. Plugins
-If the request matches a marketplace category or SaaS platform:
-- Suggest the relevant plugin with install commands
-- Show the user exactly how to install it
-
 ### 5. CLAUDE.md
 Document any new capabilities, services, or patterns added.
+- Skills go under `## Skills` section
+- Agents go under `## Agents` section (separate — never mixed)
+- MCP servers go under `## MCP Servers` section
 
 ## Rules
 - Read current content above before writing. Merge/append only.
@@ -180,6 +192,9 @@ Document any new capabilities, services, or patterns added.
 - All env var refs use `${VARNAME}` syntax. Document new vars in .env.example.
 - **NEVER write a "model" key into settings.json**
 - Produce valid JSON only.
+- Agents install to `.claude/agents/` — Skills install to `.claude/skills/`
+- Every installed file must contain real, functional content (Rule 7).
+- A fetch failure is a routing signal, not a stop condition (Rule 6).
 
 ## Output — one line per file
 Updated: ✅ [path] — [what and why]

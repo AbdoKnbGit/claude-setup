@@ -1,5 +1,35 @@
 # Changelog
 
+## v1.1.9 — 2026-03-29
+
+### Fixed: marketplace was silently broken
+- The template engine had a bug that swallowed the entire marketplace section on most runs — users got empty instructions with no search at all
+- This was the root cause of "marketplace not searching" reports
+
+### Smart fetch from 4 curated GitHub repos
+- Every `/stack-add` now searches 4 hand-picked GitHub catalogs in order — VoltAgent, community plugins, ComposioHQ, and official Anthropic — and stops at the first quality match
+- Agents and skills are treated differently: agent requests go to VoltAgent first (best agent quality), skill requests go to the community catalog first (widest coverage)
+- When a catalog is a structured JSON file, it's filtered and matched. When it's a README linking to external repos, those links are followed automatically to the actual content
+- Candidates are scored on relevance, focus, and uniqueness — the pipeline picks the best match, not the first one it finds
+- Every downloaded file is verified: must have real instructions, not just an empty stub. Bad downloads are deleted and the pipeline moves on
+- GitHub links found in any catalog are resolved dynamically — works for any repo, any author, any directory depth
+- A failed fetch never stops the pipeline — it just moves to the next source. Only after all 4 are exhausted does it create a custom one from scratch
+
+### Bulk-safe
+- All GitHub API calls support authentication via GITHUB_TOKEN for heavy usage sessions
+- The largest catalog (community, hundreds of plugins) doesn't use the API at all — fetched directly as a raw file
+- Pipeline stops at first match, so most installs only touch one source
+
+### Agents are first-class
+- Agent requests route to VoltAgent's curated collection first — quality-security, infrastructure, data-ai, orchestration, and more
+- Agents install to their own directory and are documented separately from skills — no more mixing them together
+
+### Test suite
+- Full test coverage across all 4 catalogs with live fetches — every name discovered at runtime, nothing hardcoded
+- Tests are dev-only, never run during normal usage
+
+---
+
 ## v1.1.8 — 2026-03-28
 
 ### Add: marketplace-first automation

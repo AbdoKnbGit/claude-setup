@@ -28,16 +28,22 @@ function replaceVars(template: string, vars: Record<string, string>): string {
 
 function processConditionals(template: string, flags: Record<string, boolean>): string {
   let result = template
-  // {{#if VAR}}...{{else}}...{{/if}}
-  result = result.replace(
-    /\{\{#if\s+(\w+)\}\}\n?([\s\S]*?)\{\{else\}\}\n?([\s\S]*?)\{\{\/if\}\}/g,
-    (_m, key, ifBlock, elseBlock) => flags[key] ? ifBlock : elseBlock
-  )
-  // {{#if VAR}}...{{/if}}
-  result = result.replace(
-    /\{\{#if\s+(\w+)\}\}\n?([\s\S]*?)\{\{\/if\}\}/g,
-    (_m, key, block) => flags[key] ? block : ""
-  )
+  // Process innermost conditionals first, repeat until stable.
+  // This prevents outer {{#if}} from greedily matching inner {{else}}/{{/if}}.
+  let prev = ""
+  while (prev !== result) {
+    prev = result
+    // {{#if VAR}}...{{else}}...{{/if}} first (innermost — no nested {{#if}} in either branch)
+    result = result.replace(
+      /\{\{#if\s+(\w+)\}\}\n?((?:(?!\{\{#if\b)[\s\S])*?)\{\{else\}\}\n?((?:(?!\{\{#if\b)[\s\S])*?)\{\{\/if\}\}/g,
+      (_m, key, ifBlock, elseBlock) => flags[key] ? ifBlock : elseBlock
+    )
+    // Simple {{#if VAR}}...{{/if}} (no else, no nested if inside)
+    result = result.replace(
+      /\{\{#if\s+(\w+)\}\}\n?((?:(?!\{\{#if\b|\{\{else\}\})[\s\S])*?)\{\{\/if\}\}/g,
+      (_m, key, block) => flags[key] ? block : ""
+    )
+  }
   return result
 }
 
