@@ -1,5 +1,25 @@
 # Changelog
 
+## v2.0.1 — 2026-03-30
+
+### The helper actually does its job now
+
+The lightweight helper that searches catalogs for you was barely trying — it would glance at one source, shrug, and immediately write something from scratch instead of downloading the real thing. Now it's forced to actually run every search command, look through all 4 catalogs, and only give up after genuinely striking out everywhere. If it finishes without making at least 3 real search attempts, it knows it failed.
+
+### Searches find what you're looking for
+
+Before, the helper would pull back a giant list of everything in a catalog and try to figure out what matched — often picking poorly or giving up. Now every search is pre-filtered to only show results related to what you asked for. Ask for "devops" and you only see devops-related entries, not the entire 400-item list. This also means way less data flying around, so it's faster and cheaper.
+
+### Cheaper to run
+
+Every search result is now trimmed down to just names and paths — no more dumping full descriptions and metadata into the conversation. The helper also checks file sizes immediately after downloading instead of doing a separate step, cutting unnecessary back-and-forth. Combined with the smarter filtering, a typical install uses noticeably fewer tokens.
+
+### Stops silently failing on some systems
+
+A few of the search commands still had a character that certain shells would choke on before the command even ran. The search would quietly fail and get counted as "no results found" when the catalog was never actually checked. All of those are cleaned up now.
+
+---
+
 ## v2.0.0 — 2026-03-29
 
 ### Searching is now cheap and fast
