@@ -305,6 +305,40 @@ function buildQueryRegex(input: string): string {
   return words.join("|")
 }
 
+/**
+ * Build a universal section-aware README parser as an inline node -e script.
+ * Rules (no hardcoding):
+ *   1. Split README into sections by any heading (## / ### / **Bold**)
+ *   2. Find sections whose heading matches the query keywords
+ *   3. Extract ALL links from matching sections (relative ./ AND absolute github.com)
+ *   4. If no section matches, fall back to all links in the entire README
+ * This works for any README structure — ComposioHQ, VoltAgent, or anything else.
+ */
+function buildSectionAwareParser(queryRegex: string): string {
+  // Each part is carefully escaped for: TypeScript template → bash double-quotes → node -e
+  return (
+    `const t=require('fs').readFileSync(0,'utf8');` +
+    `const q=/${queryRegex}/i;` +
+    // Split by ## headings, ### headings, and **Bold** subsection headers
+    `const secs=t.split(/\\n(?=#{2,3}\\s|\\*\\*[A-Z])/);` +
+    // 1st pass: sections whose heading matches query
+    `let hit=secs.filter(s=>q.test(s.split('\\n')[0]));` +
+    // 2nd pass: if no heading matched, find sections that have a link whose name matches
+    `if(hit.length===0)hit=secs.filter(s=>{const lk=/\\[([^\\]]+)\\]/g;let x;while((x=lk.exec(s))!=null){if(q.test(x[1]))return true}return false});` +
+    // Use matching sections, or fall back to entire README
+    `const src=hit.length>0?hit.join('\\n'):t;` +
+    // Extract all links — relative (./dir/) and absolute (github.com) and SKILL.md
+    `const re=/\\[([^\\]]+)\\]\\(([^)]+)\\)/g;let m;const r=[];` +
+    `while((m=re.exec(src))!=null){` +
+      `const u=m[2];` +
+      `if(u.startsWith('./')||u.includes('github.com')||u.includes('SKILL.md'))` +
+        `r.push(m[1]+' | '+u)` +
+    `}` +
+    `r.slice(0,10).forEach(x=>console.log(x));` +
+    `if(r.length===0)console.log('NO_README_MATCHES')`
+  )
+}
+
 // ── Marketplace instruction builder ─────────────────────────────────────
 // Implements Rule 6 (4-catalog exhaustion) and Rule 7 (3-stage fetch).
 // Agent requests route to VoltAgent subagents first.
@@ -436,26 +470,21 @@ function buildAgentPipeline(
   lines.push(`You MUST run this before moving to STEP 2. The README contains the full agent listing.`)
   lines.push(``)
   lines.push(`\`\`\`bash`)
-  lines.push(`# Fetch README, filter by query keywords, show top 5 matches with download URLs`)
+  lines.push(`# Fetch README — parser finds sections matching your query, extracts all links`)
   lines.push(`curl -sf "https://raw.githubusercontent.com/${VOLTAGENT_SUBAGENTS_REPO}/main/README.md" \\`)
-  lines.push(`  | node -e "const t=require('fs').readFileSync(0,'utf8');` +
-    `const q=/${queryRegex}/i;` +
-    `const re=/\\[([^\\]]+)\\]\\(([^)]+\\.md)\\)/g;let m;const r=[];` +
-    `while((m=re.exec(t))!=null){if(q.test(m[1])||q.test(m[2]))r.push(m[1]+' | '+m[2])}` +
-    `if(r.length===0){const re2=/\\[([^\\]]+)\\]\\(([^)]+)\\)/g;while((m=re2.exec(t))!=null){if(m[2].includes('.md'))r.push(m[1]+' | '+m[2])}}` +
-    `r.slice(0,5).forEach(x=>console.log(x));if(r.length===0)console.log('NO_README_MATCHES')"`)
+  lines.push(`  | node -e "${buildSectionAwareParser(queryRegex)}"`)
   lines.push(`\`\`\``)
   lines.push(``)
-  lines.push(`From the output above, pick the FIRST matching entry. Extract the URL part (after " | ").`)
-  lines.push(`Convert github.com URLs to raw: replace \`github.com/OWNER/REPO/blob/BRANCH/\` with \`raw.githubusercontent.com/OWNER/REPO/BRANCH/\`.`)
+  lines.push(`From the output, pick the FIRST entry. Extract the URL (after " | "). Resolve it:`)
+  lines.push(`- If URL starts with \`./\`: it is relative to the repo root. Prepend \`https://raw.githubusercontent.com/${VOLTAGENT_SUBAGENTS_REPO}/main/\``)
+  lines.push(`- If URL contains \`github.com/OWNER/REPO/blob/BRANCH/\`: replace with \`raw.githubusercontent.com/OWNER/REPO/BRANCH/\``)
+  lines.push(`- If URL contains \`github.com/OWNER/REPO/tree/BRANCH/\`: use API \`api.github.com/repos/OWNER/REPO/contents/PATH\` to list files, then download the .md file`)
   lines.push(`Then download:`)
   lines.push(`\`\`\`bash`)
-  lines.push(`# Replace RESOLVED_URL and AGENT_FILE with actual values from the README output above`)
   lines.push(`mkdir -p ".claude/agents"`)
-  lines.push(`curl -sf "RESOLVED_URL" -o ".claude/agents/AGENT_FILE.md"`)
-  lines.push(`wc -c ".claude/agents/AGENT_FILE.md"`)
+  lines.push(`curl -sf "RESOLVED_URL" -o ".claude/agents/AGENT_FILE.md" && wc -c ".claude/agents/AGENT_FILE.md"`)
   lines.push(`\`\`\``)
-  lines.push(`If the file has >50 bytes: agent is installed. If empty or NO_README_MATCHES: continue to STEP 2.`)
+  lines.push(`If >50 bytes: installed. If empty or NO_README_MATCHES: continue to STEP 2.`)
   lines.push(``)
 
   // ── STEP 2: jeremylongshore community skills (fallback for agents) ─
@@ -573,24 +602,19 @@ function buildSkillPipeline(
   lines.push(`**README-driven fallback:** If the API listing above returned SKIP or no match:`)
   lines.push(``)
   lines.push(`\`\`\`bash`)
-  lines.push(`# Fetch README and filter entries matching "${input}"`)
+  lines.push(`# Fetch README — parser finds sections matching your query, extracts all links`)
   lines.push(`curl -sf "https://raw.githubusercontent.com/${VOLTAGENT_SKILLS_REPO}/main/README.md" \\`)
-  lines.push(`  | node -e "const t=require('fs').readFileSync(0,'utf8');` +
-    `const q=/${queryRegex}/i;` +
-    `const re=/\\[([^\\]]+)\\]\\(([^)]+)\\)/g;let m;const r=[];` +
-    `while((m=re.exec(t))!=null){if((m[2].includes('SKILL.md')||m[2].includes('github.com'))&&(q.test(m[1])||q.test(m[2])))r.push(m[1]+' | '+m[2])}` +
-    `if(r.length===0){const re2=/\\[([^\\]]+)\\]\\(([^)]+)\\)/g;while((m=re2.exec(t))!=null){if(m[2].includes('SKILL.md')||m[2].includes('github.com'))r.push(m[1]+' | '+m[2])}}` +
-    `r.slice(0,5).forEach(x=>console.log(x));if(r.length===0)console.log('NO_README_MATCHES')"`)
+  lines.push(`  | node -e "${buildSectionAwareParser(queryRegex)}"`)
   lines.push(`\`\`\``)
   lines.push(``)
-  lines.push(`From the output, pick the FIRST entry. Extract the URL (after " | ").`)
-  lines.push(`Convert github.com URLs to raw: replace \`github.com/OWNER/REPO/blob/BRANCH/\` with \`raw.githubusercontent.com/OWNER/REPO/BRANCH/\`.`)
+  lines.push(`From the output, pick the FIRST entry. Extract the URL (after " | "). Resolve it:`)
+  lines.push(`- If URL starts with \`./\`: prepend \`https://raw.githubusercontent.com/${VOLTAGENT_SKILLS_REPO}/main/\``)
+  lines.push(`- If URL contains \`github.com/OWNER/REPO/blob/BRANCH/\`: replace with \`raw.githubusercontent.com/OWNER/REPO/BRANCH/\``)
+  lines.push(`- If URL contains \`github.com/OWNER/REPO/tree/BRANCH/\`: use API to list files, then download the SKILL.md`)
   lines.push(`\`\`\`bash`)
-  lines.push(`# Replace RESOLVED_URL and SKILL_DIR with actual values from README output`)
   lines.push(`SKILL_DIR="matched-skill"`)
   lines.push(`mkdir -p ".claude/skills/\${SKILL_DIR}"`)
-  lines.push(`curl -sf "RESOLVED_URL" -o ".claude/skills/\${SKILL_DIR}/SKILL.md"`)
-  lines.push(`wc -c ".claude/skills/\${SKILL_DIR}/SKILL.md"`)
+  lines.push(`curl -sf "RESOLVED_URL" -o ".claude/skills/\${SKILL_DIR}/SKILL.md" && wc -c ".claude/skills/\${SKILL_DIR}/SKILL.md"`)
   lines.push(`\`\`\``)
   lines.push(`If >50 bytes: installed. If empty or NO_README_MATCHES: continue to next STEP.`)
   lines.push(``)
@@ -690,8 +714,8 @@ function buildCommunitySkillsFetchBlock(lines: string[], categoryFilter: string)
   lines.push(`\`\`\`bash`)
   lines.push(`curl -sf "${MARKETPLACE_CATALOG_URL}" \\`)
   lines.push(`  | node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8'));` +
-    `const q='${categoryFilter}';` +
-    `const r=d.plugins.filter(p=>(q===''||p.category.includes(q))&&p.name&&p.source).slice(0,10);` +
+    `const q='${categoryFilter}'.replace(/^\\\\d+-/,'');` +
+    `const r=d.plugins.filter(p=>(q===''||p.category.includes(q)||q.includes(p.category))&&p.name&&p.source).slice(0,10);` +
     `r.forEach(p=>console.log(p.name+' | '+p.source));` +
     `if(r.length===0)console.log('NO_PLUGINS')"`)
   lines.push(`\`\`\``)
@@ -751,24 +775,19 @@ function buildComposioFetchBlock(lines: string[], input: string): void {
   lines.push(`**README-driven fallback:** If the directory listing returned SKIP or no match:`)
   lines.push(``)
   lines.push(`\`\`\`bash`)
-  lines.push(`# Fetch ComposioHQ README and filter entries matching "${input}"`)
+  lines.push(`# Fetch README — parser finds sections matching your query, extracts all links`)
   lines.push(`curl -sf "https://raw.githubusercontent.com/${COMPOSIO_REPO}/master/README.md" \\`)
-  lines.push(`  | node -e "const t=require('fs').readFileSync(0,'utf8');` +
-    `const q=/${queryRegex}/i;` +
-    `const re=/\\[([^\\]]+)\\]\\(([^)]+)\\)/g;let m;const r=[];` +
-    `while((m=re.exec(t))!=null){if((m[2].includes('SKILL.md')||m[2].includes('github.com'))&&(q.test(m[1])||q.test(m[2])))r.push(m[1]+' | '+m[2])}` +
-    `if(r.length===0){const re2=/\\[([^\\]]+)\\]\\(([^)]+)\\)/g;while((m=re2.exec(t))!=null){if(m[2].includes('SKILL.md')||m[2].includes('github.com'))r.push(m[1]+' | '+m[2])}}` +
-    `r.slice(0,5).forEach(x=>console.log(x));if(r.length===0)console.log('NO_README_MATCHES')"`)
+  lines.push(`  | node -e "${buildSectionAwareParser(queryRegex)}"`)
   lines.push(`\`\`\``)
   lines.push(``)
-  lines.push(`From the output, pick the FIRST entry. Extract the URL (after " | ").`)
-  lines.push(`Convert github.com URLs to raw: replace \`github.com/OWNER/REPO/blob/BRANCH/\` with \`raw.githubusercontent.com/OWNER/REPO/BRANCH/\`.`)
+  lines.push(`From the output, pick the FIRST entry. Extract the URL (after " | "). Resolve it:`)
+  lines.push(`- If URL starts with \`./\`: prepend \`https://raw.githubusercontent.com/${COMPOSIO_REPO}/master/\` and append \`SKILL.md\` if the URL is a directory`)
+  lines.push(`- If URL contains \`github.com/OWNER/REPO/blob/BRANCH/\`: replace with \`raw.githubusercontent.com/OWNER/REPO/BRANCH/\``)
+  lines.push(`- If URL contains \`github.com/OWNER/REPO/tree/BRANCH/\`: use API to list files, then download the SKILL.md`)
   lines.push(`\`\`\`bash`)
-  lines.push(`# Replace RESOLVED_URL and SKILL_DIR with actual values from README output`)
   lines.push(`SKILL_DIR="matched-skill"`)
   lines.push(`mkdir -p ".claude/skills/\${SKILL_DIR}"`)
-  lines.push(`curl -sf "RESOLVED_URL" -o ".claude/skills/\${SKILL_DIR}/SKILL.md"`)
-  lines.push(`wc -c ".claude/skills/\${SKILL_DIR}/SKILL.md"`)
+  lines.push(`curl -sf "RESOLVED_URL" -o ".claude/skills/\${SKILL_DIR}/SKILL.md" && wc -c ".claude/skills/\${SKILL_DIR}/SKILL.md"`)
   lines.push(`\`\`\``)
   lines.push(`If >50 bytes: installed. If empty or NO_README_MATCHES: continue to next STEP.`)
   lines.push(``)

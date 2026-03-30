@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.0.2 — 2026-03-30
+
+### Searches understand how catalogs are organized
+
+When you ask for "devops skills", the search now reads the catalog the way a human would — it finds the section called "Code & DevOps", looks at everything inside it, and gives you the full list (Bitbucket, CircleCI, GitHub Actions, GitLab, Sentry, etc). Before, it searched for the word "devops" inside individual link names and found nothing because none of those links literally say "devops."
+
+The same fix works for any topic in any catalog. Ask for "slack" and it finds the Communication section. Ask for "jira" and it finds Project Management. It reads the heading first, and if no heading matches, it looks at which section actually contains a link with that name. No hardcoded section names anywhere — it just reads the structure.
+
+### Relative links no longer invisible
+
+Many catalog entries use short links like `./github-automation/` instead of full URLs. The search was filtering for "github.com" in links and throwing away everything else — which meant entire catalogs appeared empty when they were full of content. Now it picks up links regardless of format and resolves them to the right download URL.
+
+### Category names match across catalogs
+
+One catalog uses categories like "devops", another uses "04-devops". The search was sending the numbered format to a catalog that expected the plain format, so the entire category came back empty. Now it strips the number prefix automatically, so it works no matter how the catalog labels things.
+
+---
+
 ## v2.0.1 — 2026-03-30
 
 ### The helper actually does its job now
