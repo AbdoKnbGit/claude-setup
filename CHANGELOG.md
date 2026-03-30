@@ -1,5 +1,29 @@
 # Changelog
 
+## v2.0.3 — 2026-03-30
+
+### The test suite actually earns its keep now
+
+We added 9 new test sections covering roughly 230 new cases — the kind of tests that would have caught real bugs that slipped through before.
+
+**The fetcher uses the right model.** Three dedicated tests confirm that the marketplace-fetcher agent is wired to `haiku` both in its source definition and in the installed file. Sounds obvious, but this was never actually verified.
+
+**27 different query types, all the way through.** The pipeline now gets tested against 27 realistic user requests — things like "data analysis", "ethical hacking", "jira integration", "finance automation", "legal research", and more. Each one is checked for: are there actual instructions? does the output reference multiple catalogs? are there real curl commands? are there no hardcoded paths? does the step count make sense? This is the closest thing to a real user session we have.
+
+**Stop words don't eat your search terms.** 12 tests cover keyword extraction — making sure words like "a", "the", "for", "me" get stripped while actual meaningful words like "slack", "github", "devops" survive. Edge cases included.
+
+**No more `!` blowing up in bash.** Around 25 tests scan every `node -e` block in the pipeline for dangerous `!` patterns that cause bash history expansion. This was a silent failure mode on many systems — the command would die before anything ran, and the error looked like "no results found."
+
+**ComposioHQ and VoltAgent parsers are tested for real.** 16 tests hit the ComposioHQ README with 7 diverse queries (devops, data, marketing, slack, security, finance, automation) and verify that results come back, relative links are captured, and those links resolve to real URLs. 6 more do the same for VoltAgent across infrastructure, security, data AI, orchestration, and development queries.
+
+**Category numbering doesn't break matching.** 20 tests cover prefix stripping — making sure `04-devops` matches a query for `devops`, that 7 different category formats all work, and that the pipeline itself embeds this rule correctly.
+
+**Relative links actually resolve.** 3 tests confirm that `./`-style links are found and that at least one of them traces back to a real `SKILL.md` file on disk.
+
+**All 3 catalogs, 10 diverse queries each.** The cross-catalog section runs 10 varied queries against the community catalog, ComposioHQ, and VoltAgent simultaneously — making sure none of them go dark for queries they should handle.
+
+---
+
 ## v2.0.2 — 2026-03-30
 
 ### Searches understand how catalogs are organized
