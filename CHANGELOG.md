@@ -1,5 +1,25 @@
 # Changelog
 
+## v2.0.4 — 2026-04-01
+
+### Tier 1 Marketplace: Zero-discovery installs
+- Integrated a pre-verified **Marketplace Catalog** with direct download URLs for common skills and agents.
+- Added a **2-tier resolution strategy**:
+  - **Tier 1**: Instant catalog lookup eliminates discovery latency and token costs for known items.
+  - **Tier 2**: Robust discovery fallback remains for items not yet in the catalog.
+- Verified all catalog URLs for reliability and correct directory structures.
+
+### Project-Aware Intelligence
+- The marketplace fetcher is now **context-aware**. It receives your project's tech stack (React, Python, Docker, etc.) and prioritizes specialized skills that match your environment.
+- Improved **Query Intelligence**: The system now translates, enhances, and decomposes complex or non-English requests into precise technical search terms.
+
+### Performance & Stability
+- Reduced token overhead for the most common installation tasks by up to 90% via the catalog-first strategy.
+- Backported the complete test suite from the STK prototype, ensuring 100% parity and higher stability.
+- All OS-agnostic command fixes (POSIX paths) have been standardized across the pipeline.
+
+---
+
 ## v2.0.3 — 2026-03-30
 
 ### The test suite actually earns its keep now

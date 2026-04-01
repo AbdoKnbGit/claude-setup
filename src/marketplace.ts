@@ -2,16 +2,22 @@
  * Marketplace intelligence — provides catalog info and decision logic
  * for the add command to suggest plugins, skills, MCP servers, and agents.
  *
- * Implements the 4-catalog exhaustion pipeline (Rule 6) with 3-stage
- * fetch resolution (Rule 7): find entry → navigate directory → download content.
+ * Implements a 2-tier resolution strategy:
+ *   TIER 1 — Catalog-first: query the pre-verified SEED_CATALOG for direct URLs.
+ *            If a high-confidence match (score ≥ 20) exists, emit ready-to-run
+ *            curl commands — zero discovery overhead.
+ *   TIER 2 — Discovery fallback: 4-catalog exhaustion pipeline (Rule 6) with
+ *            3-stage fetch resolution (Rule 7) for items not in the catalog.
  *
  * Zero API calls at import time. Catalog is fetched only when needed.
  */
 
+import { queryCatalog } from "./marketplace-catalog.js"
+
 // ── Source 1: VoltAgent subagents (agents/sub-agents) ────────────────
 export const VOLTAGENT_SUBAGENTS_REPO = "VoltAgent/awesome-claude-code-subagents"
-export const VOLTAGENT_SUBAGENTS_API  = `https://api.github.com/repos/${VOLTAGENT_SUBAGENTS_REPO}/contents/categories`
-export const VOLTAGENT_SUBAGENTS_RAW  = `https://raw.githubusercontent.com/${VOLTAGENT_SUBAGENTS_REPO}/main/categories`
+export const VOLTAGENT_SUBAGENTS_API = `https://api.github.com/repos/${VOLTAGENT_SUBAGENTS_REPO}/contents/categories`
+export const VOLTAGENT_SUBAGENTS_RAW = `https://raw.githubusercontent.com/${VOLTAGENT_SUBAGENTS_REPO}/main/categories`
 
 export const VOLTAGENT_CATEGORIES = [
   "01-core-development",
@@ -33,12 +39,12 @@ export const MARKETPLACE_CATALOG_URL =
 
 // ── Source 3: VoltAgent curated agent skills ────────────────────────────
 export const VOLTAGENT_SKILLS_REPO = "VoltAgent/awesome-agent-skills"
-export const VOLTAGENT_SKILLS_API  = `https://api.github.com/repos/${VOLTAGENT_SKILLS_REPO}/contents`
+export const VOLTAGENT_SKILLS_API = `https://api.github.com/repos/${VOLTAGENT_SKILLS_REPO}/contents`
 
 // ── Source 4: ComposioHQ service integrations (1000+) ───────────────────
 export const COMPOSIO_REPO = "ComposioHQ/awesome-claude-skills"
-export const COMPOSIO_API  = `https://api.github.com/repos/${COMPOSIO_REPO}/contents`
-export const COMPOSIO_RAW  = `https://raw.githubusercontent.com/${COMPOSIO_REPO}/master`
+export const COMPOSIO_API = `https://api.github.com/repos/${COMPOSIO_REPO}/contents`
+export const COMPOSIO_RAW = `https://raw.githubusercontent.com/${COMPOSIO_REPO}/master`
 
 /** The 20 skill categories in the marketplace */
 export const SKILL_CATEGORIES = [
@@ -60,16 +66,16 @@ export const SAAS_PACKS = [
 // ── Adjacent category map (for fallback when primary SKIP) ─────────────
 
 const ADJACENT_CATEGORIES: Record<string, string[]> = {
-  "01-core-development":     ["02-language-specialists", "06-developer-experience"],
-  "02-language-specialists":  ["01-core-development",     "06-developer-experience"],
-  "03-infrastructure":        ["04-quality-security",     "09-meta-orchestration"],
-  "04-quality-security":      ["03-infrastructure",       "01-core-development"],
-  "05-data-ai":               ["10-research-analysis",    "07-specialized-domains"],
-  "06-developer-experience":  ["01-core-development",     "02-language-specialists"],
-  "07-specialized-domains":   ["05-data-ai",              "08-business-product"],
-  "08-business-product":      ["07-specialized-domains",  "09-meta-orchestration"],
-  "09-meta-orchestration":    ["03-infrastructure",       "04-quality-security"],
-  "10-research-analysis":     ["05-data-ai",              "07-specialized-domains"],
+  "01-core-development": ["02-language-specialists", "06-developer-experience"],
+  "02-language-specialists": ["01-core-development", "06-developer-experience"],
+  "03-infrastructure": ["04-quality-security", "09-meta-orchestration"],
+  "04-quality-security": ["03-infrastructure", "01-core-development"],
+  "05-data-ai": ["10-research-analysis", "07-specialized-domains"],
+  "06-developer-experience": ["01-core-development", "02-language-specialists"],
+  "07-specialized-domains": ["05-data-ai", "08-business-product"],
+  "08-business-product": ["07-specialized-domains", "09-meta-orchestration"],
+  "09-meta-orchestration": ["03-infrastructure", "04-quality-security"],
+  "10-research-analysis": ["05-data-ai", "07-specialized-domains"],
 }
 
 /** Expand target categories with their adjacent neighbors, deduplicating */
@@ -330,9 +336,9 @@ function buildSectionAwareParser(queryRegex: string): string {
     // Extract all links — relative (./dir/) and absolute (github.com) and SKILL.md
     `const re=/\\[([^\\]]+)\\]\\(([^)]+)\\)/g;let m;const r=[];` +
     `while((m=re.exec(src))!=null){` +
-      `const u=m[2];` +
-      `if(u.startsWith('./')||u.includes('github.com')||u.includes('SKILL.md'))` +
-        `r.push(m[1]+' | '+u)` +
+    `const u=m[2];` +
+    `if(u.startsWith('./')||u.includes('github.com')||u.includes('SKILL.md'))` +
+    `r.push(m[1]+' | '+u)` +
     `}` +
     `r.slice(0,10).forEach(x=>console.log(x));` +
     `if(r.length===0)console.log('NO_README_MATCHES')`
@@ -344,14 +350,66 @@ function buildSectionAwareParser(queryRegex: string): string {
 // Agent requests route to VoltAgent subagents first.
 // Skill requests route to jeremylongshore → VoltAgent skills → ComposioHQ.
 
-export function buildMarketplaceInstructions(input: string): string {
+export function buildMarketplaceInstructions(input: string, projectContext?: string): string {
   const classification = classifyRequest(input)
   const { categories, saasMatches, isAgent: isAgentReq, agentCategories } = classification
   const categoryFilter = categories[0] ?? ""
 
+  // ── TIER 1: Catalog-first lookup (pre-verified URLs) ────────────
+  const catalogResult = queryCatalog(input)
+  const hasCatalogHit = catalogResult.matches.length > 0 && catalogResult.matches[0].score >= 20
+
   const lines: string[] = []
   lines.push(`## Marketplace — fully automated install (DO NOT ASK — JUST DO IT)`)
   lines.push(``)
+
+  // ── Sub-agent system prompt ─────────────────────────────────────
+  lines.push(`### You are the marketplace-fetcher sub-agent`)
+  lines.push(`Your job: understand what the user ACTUALLY needs, find the best skill/agent from the catalog, download it, and install it.`)
+  lines.push(`You are SMART. Do not do dumb keyword matching. Think about the user's INTENT.`)
+  lines.push(``)
+
+  // ── Project awareness (tech stack context) ──────────────────────
+  if (projectContext) {
+    lines.push(`### Project Context (use this to understand what the user's project is about)`)
+    lines.push(projectContext)
+    lines.push(``)
+    lines.push(`Use the project context above to ENRICH your search:`)
+    lines.push(`- If the project uses React → prefer React-specific skills over generic frontend skills`)
+    lines.push(`- If the project uses PostgreSQL → prefer PostgreSQL skills over generic database skills`)
+    lines.push(`- If the project uses Python → prefer Python testing tools over JavaScript ones`)
+    lines.push(`- If the project uses Docker → prefer Docker/container skills for deployment queries`)
+    lines.push(`- Map abstract concepts to this project's ACTUAL tech stack:`)
+    lines.push(`  "protect my app" + Express project → search: security, express middleware, OWASP, XSS`)
+    lines.push(`  "make it faster" + React project → search: performance, react optimization, bundle, lazy load`)
+    lines.push(`  "test my code" + Python project → search: pytest, unit test, coverage`)
+    lines.push(``)
+  }
+
+  // ── Query Intelligence — translate, enhance, decompose ──────────
+  lines.push(`### Query Intelligence (apply BEFORE searching)`)
+  lines.push(`1. **Language**: If the user's request is NOT in English, translate it to English first. Extract the core technical keywords.`)
+  lines.push(`2. **Enhance**: Map vague terms to specific technical keywords:`)
+  lines.push(`   - "make my app fast" → performance, optimization, profiling, caching`)
+  lines.push(`   - "secure my code" → security, vulnerability, pentest, OWASP, secrets`)
+  lines.push(`   - "handle files" → file management, pdf, document, organize`)
+  lines.push(`   - "set up deployment" → CI/CD, docker, kubernetes, pipeline`)
+  lines.push(`3. **Decompose**: If the request has multiple intents, search for EACH one separately.`)
+  lines.push(`   - "I need database + testing + deployment" → 3 separate searches`)
+  lines.push(`4. **Quality**: Prefer catalog matches with score ≥ 40. If top match scores < 20, skip to discovery.`)
+  lines.push(``)
+
+  if (hasCatalogHit) {
+    // Emit ready-to-run commands from pre-verified catalog — zero discovery needed
+    buildCatalogHitBlock(lines, catalogResult, isAgentReq)
+    lines.push(``)
+    lines.push(`---`)
+    lines.push(``)
+    lines.push(`### FALLBACK — If the catalog URLs above returned 404 or empty, continue below.`)
+    lines.push(`The catalog-first approach failed. Fall through to the full discovery pipeline.`)
+    lines.push(``)
+  }
+
   lines.push(`4 catalogs available. You MUST search them ALL in order before giving up.`)
   lines.push(`A fetch failure is NOT a stop condition — it is a routing signal to the next source.`)
   lines.push(`**DO NOT ask the user clarifying questions. Execute every command yourself.**`)
@@ -394,6 +452,50 @@ export function buildMarketplaceInstructions(input: string): string {
   lines.push(``)
 
   return lines.join("\n")
+}
+
+// ── Catalog-first hit block (zero-discovery install) ────────────────────
+
+function buildCatalogHitBlock(
+  lines: string[],
+  result: import("./marketplace-types.js").CatalogQueryResult,
+  isAgent: boolean,
+): void {
+  const { matches } = result
+
+  lines.push(`### ⚡ CATALOG HIT — Pre-verified URLs (try these FIRST)`)
+  lines.push(``)
+  lines.push(`These URLs are pre-verified from the built-in catalog. Execute them directly.`)
+  lines.push(`Only fall through to the discovery pipeline below if ALL of these return 404 or empty.`)
+  lines.push(``)
+
+  for (let i = 0; i < Math.min(matches.length, 3); i++) {
+    const { item, score } = matches[i]
+    const rank = i === 0 ? "⭐ BEST MATCH" : `   Option ${i + 1}`
+    lines.push(`${rank}: **${item.name}** (${item.type} · ${item.source} · score ${score})`)
+    lines.push(`  ${item.description}`)
+    lines.push(``)
+
+    if (item.source === "anthropic") {
+      lines.push(`\`\`\`bash`)
+      lines.push(`/plugin install ${item.directUrl}`)
+      lines.push(`\`\`\``)
+    } else {
+      // Use forward-slash paths (POSIX) — works on all OS including Windows Git Bash
+      const installDir = item.installPath.replace(/\\/g, "/").split("/").slice(0, -1).join("/")
+      lines.push(`\`\`\`bash`)
+      lines.push(`mkdir -p "${installDir}"`)
+      lines.push(`curl -sf "${item.directUrl}" -o "${item.installPath}"`)
+      lines.push(`wc -c "${item.installPath}"   # must be >50 bytes`)
+      lines.push(`\`\`\``)
+    }
+    lines.push(``)
+  }
+
+  lines.push(`**Rule:** If the BEST MATCH file is >50 bytes after download, you are DONE.`)
+  lines.push(`Do NOT continue to the discovery pipeline. Report the install and stop.`)
+  lines.push(`If empty/404: try the next option. If ALL options fail: continue to FALLBACK below.`)
+  lines.push(``)
 }
 
 // ── Agent pipeline (VoltAgent subagents → skills fallback) ──────────

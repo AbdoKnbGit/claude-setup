@@ -193,7 +193,8 @@ export function buildEmptyProjectCommand(): string {
 }
 
 export function buildAddCommand(input: string, collected: CollectedFiles, state: ExistingState): string {
-  const marketplaceSection = buildMarketplaceInstructions(input)
+  const projectContext = formatProjectContext(collected)
+  const marketplaceSection = buildMarketplaceInstructions(input, projectContext)
   return applyTemplate("add.md", collected, state, {
     USER_INPUT: input,
     MARKETPLACE_INSTRUCTIONS: marketplaceSection,
@@ -354,90 +355,90 @@ export function buildAtomicSteps(collected: CollectedFiles, state: ExistingState
       content: (() => {
         const serviceDiscovery = buildServiceDiscoveryInstructions(process.cwd())
         return header + preamble +
-        `## Target: .mcp.json\n\n` +
-        (state.mcpJson.exists
-          ? `### Current content — MERGE ONLY, never remove existing entries:\n${vars.MCP_JSON_CONTENT}\n\n`
-          : `Does not exist.\n\n`) +
-        `### When to create/update\n` +
-        `Add an MCP server if you find ANY of these signals in /stack-0-context:\n` +
-        `- Import statement referencing an external service (e.g., pg, mysql2, mongoose, redis, stripe)\n` +
-        `- docker-compose service (database, cache, queue, message broker)\n` +
-        `- Env var name in .env.example matching a known service pattern (DATABASE_URL, REDIS_URL, STRIPE_KEY, etc.)\n` +
-        `- Explicit dependency on an MCP-compatible package\n` +
-        `- User mentioned external services during init questions\n\n` +
-        `If ANY evidence is found, create .mcp.json with the corresponding servers.\n` +
-        `No evidence = no server. Do not invent services.\n\n` +
-        (serviceDiscovery ? serviceDiscovery + `\n` : ``) +
-        `### Verified MCP package names — ONLY use these\n` +
-        `\`\`\`\n` +
-        Object.entries(VERIFIED_MCP_PACKAGES).map(([k, v]) => `${k.padEnd(12)} → ${v}`).join("\n") +
-        `\n\`\`\`\n` +
-        `If the service is not in this list, print:\n` +
-        `\`⚠️ UNKNOWN PACKAGE — [service] MCP server not added: package name unverified. Find it at https://github.com/modelcontextprotocol/servers\`\n` +
-        `Do not add a placeholder. Do not guess.\n\n` +
-        `### OS-correct format (detected: ${os}${os === "WSL" ? " — uses Unix-style commands, services reachable on localhost" : ""})\n` +
-        `**Preferred: use CLI to add (writes to .mcp.json automatically):**\n` +
-        (os === "Windows"
-          ? `\`\`\`\nclaude mcp add --scope project --transport stdio <name> -- cmd /c npx -y <package>\n\`\`\`\n`
-          : `\`\`\`\nclaude mcp add --scope project --transport stdio <name> -- npx -y <package>\n\`\`\`\n`) +
-        `**Or write .mcp.json directly:**\n` +
-        (os === "Windows"
-          ? `Use: \`{ "command": "cmd", "args": ["/c", "npx", "-y", "<package>"] }\`\n`
-          : `Use: \`{ "command": "npx", "args": ["-y", "<package>"] }\`\n`) +
-        `Always include \`-y\` in npx args to prevent install hangs.\n` +
-        (os === "WSL" ? `Note: WSL uses Unix-style npx — do NOT use \`cmd /c\` wrapper.\n` : ``) +
-        (os === "macOS" ? `Note: On macOS, Homebrew services run on localhost by default. Check with \`brew services list\`.\n` : ``) +
-        `\n` +
-        `### Connection strings — smart auto-configuration\n` +
-        `For each MCP server that needs a connection string:\n` +
-        `1. **Check environment first:** If \`\${VARNAME}\` is set in the user's environment, use \`"env": { "VAR": "\${VAR}" }\`\n` +
-        `2. **Detect local service:** Run the OS-appropriate check command to see if the service is installed locally\n` +
-        (os === "Windows"
-          ? `   - PostgreSQL: \`where psql 2>nul\`\n   - MongoDB: \`where mongosh 2>nul\`\n   - Redis: \`where redis-cli 2>nul\`\n   - MySQL: \`where mysql 2>nul\`\n`
-          : os === "macOS"
-          ? `   - PostgreSQL: \`command -v psql || brew list postgresql 2>/dev/null\`\n   - MongoDB: \`command -v mongosh || brew list mongodb-community 2>/dev/null\`\n   - Redis: \`command -v redis-cli || brew list redis 2>/dev/null\`\n   - MySQL: \`command -v mysql || brew list mysql 2>/dev/null\`\n`
-          : `   - PostgreSQL: \`command -v psql\`\n   - MongoDB: \`command -v mongosh\`\n   - Redis: \`command -v redis-cli\`\n   - MySQL: \`command -v mysql\`\n`) +
-        `3. **If local service found and env var NOT set:** Use the well-known default URL directly in the env block:\n` +
-        `   - PostgreSQL: \`postgresql://localhost:5432/postgres\`\n` +
-        `   - MongoDB: \`mongodb://localhost:27017\`\n` +
-        `   - Redis: \`redis://localhost:6379\`\n` +
-        `   - MySQL: \`mysql://root@localhost:3306\`\n` +
-        `   AND document the var in .env.example with the default value\n` +
-        `4. **If neither env var nor local service found:** Use \`\${VARNAME}\` syntax and flag:\n` +
-        `   \`⚠️ Set VARNAME in your environment or .env file before starting Claude Code\`\n\n` +
-        `**NEVER hardcode credentials.** Default localhost URLs are acceptable for dev environments.\n` +
-        `After adding any server with env vars, always document them in .env.example.\n\n` +
-        `### Rules\n` +
-        `- Produce valid JSON only\n` +
-        `- If creating: document every new env var in .env.example\n` +
-        `- OS format must match detected OS: ${os}\n\n` +
-        `### Channels (Telegram, Discord) — special MCP servers\n` +
-        `Channels are MCP servers that push events INTO a session. They require:\n` +
-        `- Claude Code v2.1.80+\n` +
-        `- claude.ai login (not API key / Console)\n` +
-        `- Bun runtime installed\n` +
-        `- \`--channels\` flag at EVERY session launch\n\n` +
-        `Verified channel plugins:\n` +
-        `\`\`\`\n` +
-        `Telegram → plugin:telegram@claude-plugins-official\n` +
-        `Discord  → plugin:discord@claude-plugins-official\n` +
-        `\`\`\`\n\n` +
-        `If adding a channel-type server, bot tokens must NEVER be hardcoded:\n` +
-        (os === "Windows"
-          ? `\`{ "command": "cmd", "args": ["/c", "bun", "run", "\${CLAUDE_PLUGIN_ROOT}/servers/telegram"], "env": { "TELEGRAM_BOT_TOKEN": "\${TELEGRAM_BOT_TOKEN}" } }\`\n`
-          : `\`{ "command": "bun", "args": ["run", "\${CLAUDE_PLUGIN_ROOT}/servers/telegram"], "env": { "TELEGRAM_BOT_TOKEN": "\${TELEGRAM_BOT_TOKEN}" } }\`\n`) +
-        (os === "WSL" ? `(WSL note: Bun must be installed inside WSL, not the Windows-side installation.)\n` : ``) +
-        `After adding, flag: \`⚠️ CHANNEL ACTIVATION REQUIRED — launch with: claude --channels plugin:telegram@claude-plugins-official\`\n\n` +
-        `### Self-correction fallback\n` +
-        `If MCP configuration fails or produces warnings:\n` +
-        `1. Read the official MCP documentation: https://modelcontextprotocol.io/introduction\n` +
-        `2. Verify the package name against the MCP servers registry: https://github.com/modelcontextprotocol/servers\n` +
-        `3. Check the server's README for required env vars and correct args format\n` +
-        `4. Re-run \`npx claude-setup doctor\` to validate the fix\n` +
-        `Do NOT leave broken MCP configuration in place — either fix it or remove the entry.\n\n` +
-        `### Output\n` +
-        `Created/Updated: ✅ .mcp.json — [what server and evidence source]\n` +
-        `Skipped: ⏭ .mcp.json — checked [files], found [nothing], no action\n`
+          `## Target: .mcp.json\n\n` +
+          (state.mcpJson.exists
+            ? `### Current content — MERGE ONLY, never remove existing entries:\n${vars.MCP_JSON_CONTENT}\n\n`
+            : `Does not exist.\n\n`) +
+          `### When to create/update\n` +
+          `Add an MCP server if you find ANY of these signals in /stack-0-context:\n` +
+          `- Import statement referencing an external service (e.g., pg, mysql2, mongoose, redis, stripe)\n` +
+          `- docker-compose service (database, cache, queue, message broker)\n` +
+          `- Env var name in .env.example matching a known service pattern (DATABASE_URL, REDIS_URL, STRIPE_KEY, etc.)\n` +
+          `- Explicit dependency on an MCP-compatible package\n` +
+          `- User mentioned external services during init questions\n\n` +
+          `If ANY evidence is found, create .mcp.json with the corresponding servers.\n` +
+          `No evidence = no server. Do not invent services.\n\n` +
+          (serviceDiscovery ? serviceDiscovery + `\n` : ``) +
+          `### Verified MCP package names — ONLY use these\n` +
+          `\`\`\`\n` +
+          Object.entries(VERIFIED_MCP_PACKAGES).map(([k, v]) => `${k.padEnd(12)} → ${v}`).join("\n") +
+          `\n\`\`\`\n` +
+          `If the service is not in this list, print:\n` +
+          `\`⚠️ UNKNOWN PACKAGE — [service] MCP server not added: package name unverified. Find it at https://github.com/modelcontextprotocol/servers\`\n` +
+          `Do not add a placeholder. Do not guess.\n\n` +
+          `### OS-correct format (detected: ${os}${os === "WSL" ? " — uses Unix-style commands, services reachable on localhost" : ""})\n` +
+          `**Preferred: use CLI to add (writes to .mcp.json automatically):**\n` +
+          (os === "Windows"
+            ? `\`\`\`\nclaude mcp add --scope project --transport stdio <name> -- cmd /c npx -y <package>\n\`\`\`\n`
+            : `\`\`\`\nclaude mcp add --scope project --transport stdio <name> -- npx -y <package>\n\`\`\`\n`) +
+          `**Or write .mcp.json directly:**\n` +
+          (os === "Windows"
+            ? `Use: \`{ "command": "cmd", "args": ["/c", "npx", "-y", "<package>"] }\`\n`
+            : `Use: \`{ "command": "npx", "args": ["-y", "<package>"] }\`\n`) +
+          `Always include \`-y\` in npx args to prevent install hangs.\n` +
+          (os === "WSL" ? `Note: WSL uses Unix-style npx — do NOT use \`cmd /c\` wrapper.\n` : ``) +
+          (os === "macOS" ? `Note: On macOS, Homebrew services run on localhost by default. Check with \`brew services list\`.\n` : ``) +
+          `\n` +
+          `### Connection strings — smart auto-configuration\n` +
+          `For each MCP server that needs a connection string:\n` +
+          `1. **Check environment first:** If \`\${VARNAME}\` is set in the user's environment, use \`"env": { "VAR": "\${VAR}" }\`\n` +
+          `2. **Detect local service:** Run the OS-appropriate check command to see if the service is installed locally\n` +
+          (os === "Windows"
+            ? `   - PostgreSQL: \`where psql 2>nul\`\n   - MongoDB: \`where mongosh 2>nul\`\n   - Redis: \`where redis-cli 2>nul\`\n   - MySQL: \`where mysql 2>nul\`\n`
+            : os === "macOS"
+              ? `   - PostgreSQL: \`command -v psql || brew list postgresql 2>/dev/null\`\n   - MongoDB: \`command -v mongosh || brew list mongodb-community 2>/dev/null\`\n   - Redis: \`command -v redis-cli || brew list redis 2>/dev/null\`\n   - MySQL: \`command -v mysql || brew list mysql 2>/dev/null\`\n`
+              : `   - PostgreSQL: \`command -v psql\`\n   - MongoDB: \`command -v mongosh\`\n   - Redis: \`command -v redis-cli\`\n   - MySQL: \`command -v mysql\`\n`) +
+          `3. **If local service found and env var NOT set:** Use the well-known default URL directly in the env block:\n` +
+          `   - PostgreSQL: \`postgresql://localhost:5432/postgres\`\n` +
+          `   - MongoDB: \`mongodb://localhost:27017\`\n` +
+          `   - Redis: \`redis://localhost:6379\`\n` +
+          `   - MySQL: \`mysql://root@localhost:3306\`\n` +
+          `   AND document the var in .env.example with the default value\n` +
+          `4. **If neither env var nor local service found:** Use \`\${VARNAME}\` syntax and flag:\n` +
+          `   \`⚠️ Set VARNAME in your environment or .env file before starting Claude Code\`\n\n` +
+          `**NEVER hardcode credentials.** Default localhost URLs are acceptable for dev environments.\n` +
+          `After adding any server with env vars, always document them in .env.example.\n\n` +
+          `### Rules\n` +
+          `- Produce valid JSON only\n` +
+          `- If creating: document every new env var in .env.example\n` +
+          `- OS format must match detected OS: ${os}\n\n` +
+          `### Channels (Telegram, Discord) — special MCP servers\n` +
+          `Channels are MCP servers that push events INTO a session. They require:\n` +
+          `- Claude Code v2.1.80+\n` +
+          `- claude.ai login (not API key / Console)\n` +
+          `- Bun runtime installed\n` +
+          `- \`--channels\` flag at EVERY session launch\n\n` +
+          `Verified channel plugins:\n` +
+          `\`\`\`\n` +
+          `Telegram → plugin:telegram@claude-plugins-official\n` +
+          `Discord  → plugin:discord@claude-plugins-official\n` +
+          `\`\`\`\n\n` +
+          `If adding a channel-type server, bot tokens must NEVER be hardcoded:\n` +
+          (os === "Windows"
+            ? `\`{ "command": "cmd", "args": ["/c", "bun", "run", "\${CLAUDE_PLUGIN_ROOT}/servers/telegram"], "env": { "TELEGRAM_BOT_TOKEN": "\${TELEGRAM_BOT_TOKEN}" } }\`\n`
+            : `\`{ "command": "bun", "args": ["run", "\${CLAUDE_PLUGIN_ROOT}/servers/telegram"], "env": { "TELEGRAM_BOT_TOKEN": "\${TELEGRAM_BOT_TOKEN}" } }\`\n`) +
+          (os === "WSL" ? `(WSL note: Bun must be installed inside WSL, not the Windows-side installation.)\n` : ``) +
+          `After adding, flag: \`⚠️ CHANNEL ACTIVATION REQUIRED — launch with: claude --channels plugin:telegram@claude-plugins-official\`\n\n` +
+          `### Self-correction fallback\n` +
+          `If MCP configuration fails or produces warnings:\n` +
+          `1. Read the official MCP documentation: https://modelcontextprotocol.io/introduction\n` +
+          `2. Verify the package name against the MCP servers registry: https://github.com/modelcontextprotocol/servers\n` +
+          `3. Check the server's README for required env vars and correct args format\n` +
+          `4. Re-run \`npx claude-setup doctor\` to validate the fix\n` +
+          `Do NOT leave broken MCP configuration in place — either fix it or remove the entry.\n\n` +
+          `### Output\n` +
+          `Created/Updated: ✅ .mcp.json — [what server and evidence source]\n` +
+          `Skipped: ⏭ .mcp.json — checked [files], found [nothing], no action\n`
       })(),
     },
 
